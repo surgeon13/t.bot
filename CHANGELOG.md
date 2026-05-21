@@ -2,6 +2,13 @@
 
 All notable changes to **t.bot** are documented here. The project follows [Semantic Versioning](https://semver.org/) loosely while in pre-1.0.
 
+## Unreleased
+
+### Documentation
+
+- Added **[docs/scheduler.md](docs/scheduler.md)** — full guide for `npm run schedule`, config, terminal commands, and comparison with other commands.
+- Expanded command tables in README and docs index (scheduler was previously only mentioned in passing).
+
 ## 0.9.1 — 2026-05-21
 
 ### Added

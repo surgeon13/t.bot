@@ -21,6 +21,7 @@ The bot watches the required video ads and clicks through Travian’s dialogs. I
 | Topic | Guide |
 |-------|--------|
 | `config.json` options | [docs/configuration.md](docs/configuration.md) |
+| Periodic scheduler | [docs/scheduler.md](docs/scheduler.md) |
 | Web GUI & API | [docs/gui.md](docs/gui.md) |
 | Resource +15% bonuses | [docs/resource-bonuses.md](docs/resource-bonuses.md) |
 | Login, videos, headless | [docs/troubleshooting.md](docs/troubleshooting.md) |
@@ -60,16 +61,26 @@ npm run gui
 
 Open **http://127.0.0.1:3733** (or the port you set). Use **Refresh all bonuses** on startup to read current states, then claim individually or with **Claim all available resources**.
 
-### Other commands
+### All commands
 
 | Command | Purpose |
 |---------|---------|
 | `npm start` | Interactive terminal menu (settings, adventures check, claim bonuses) |
+| `npm run gui` | Web control panel (see above) |
 | `npm run bonuses` | One shot: login → hero bonuses → resource bonuses **if enabled and due** → exit |
 | `npm run resources` | One shot: login → **force** all claimable resource videos → exit |
-| `npm run schedule` | Loop: repeat `bonuses` every `schedule.intervalHours` (enable in config first) |
+| `npm run schedule` | **Scheduler loop** — repeat `bonuses` on a timer until stopped ([guide](docs/scheduler.md)) |
+| `npm run export` | Create clean `t.bot-v<version>.zip` for another PC |
 
-**Scheduler:** set `schedule.enabled` to `true` in `config.json` (or menu **S**), then run `npm run schedule` in a **second** terminal. Minimum interval: **0.25 h** (15 min).
+### Scheduler (`npm run schedule`)
+
+Long-running process (`scheduler.js`). Each cycle = same as `npm run bonuses`, then wait **`schedule.intervalHours`** (default 3 h, min 15 min).
+
+1. Set `"schedule": { "enabled": true }` in config, or menu **(S)** → Periodic claims **ON**.  
+2. Run in a **second terminal:** `npm run schedule`  
+3. Menu shows next run from `schedule-state.json` after the first cycle.
+
+While waiting, type **`status`**, **`stop`**, or **`run`** / **`now`** in that terminal. Full details: **[docs/scheduler.md](docs/scheduler.md)**.
 
 **Environment (GUI):**
 
@@ -116,11 +127,13 @@ Local state (gitignored): `config.json`, `bot.log`, `schedule-state.json`, `reso
 
 ## Terminal commands (during long runs)
 
-While `npm run schedule` or a menu claim task is running, type in that terminal:
+While **`npm run schedule`** or a menu claim task is running, type in **that** terminal:
 
-- `status` / `s` — current state  
-- `stop` / `q` / `quit` — stop after the current step  
-- `run` / `now` — (scheduler) start next run immediately  
+| Command | Aliases | Effect |
+|---------|---------|--------|
+| `status` | `s` | Current state (scheduler shows next run time) |
+| `stop` | `q`, `quit` | Stop after the current browser step |
+| `run` | `now` | Scheduler only: start the next cycle now |
 
 ## Sharing / export zip
 

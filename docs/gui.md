@@ -15,6 +15,8 @@ The GUI process:
 3. Serves static files from `public/` and JSON APIs from `gui.js`.
 4. Optionally opens your system browser tab (unless `OPEN_BROWSER=0`).
 
+**Note:** Periodic automatic claims use **`npm run schedule`** in a separate terminal, not the GUI. See [scheduler.md](scheduler.md).
+
 ## Panels
 
 ### Session strip

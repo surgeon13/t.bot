@@ -48,6 +48,12 @@ Error: listen EADDRINUSE 127.0.0.1:3733
 
 Another `npm run gui` is still running. Stop it or use `PORT=3734 npm run gui`.
 
+## Scheduler does not run or exits immediately
+
+1. Set `schedule.enabled` to `true` — otherwise `npm run schedule` exits with a hint.  
+2. Start it in its own terminal: `npm run schedule` (not started by `npm start` or the GUI).  
+3. See **[scheduler.md](scheduler.md)** for the full command reference.
+
 ## Scheduler does not run resource bonuses
 
 1. Set `resourceBonuses.enabled` to `true` in `config.json`.  

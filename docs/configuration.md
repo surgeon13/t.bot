@@ -62,7 +62,7 @@ copy config.example.json config.json
 
 ### Scheduler (`schedule`)
 
-Used by `npm run schedule` and shown in the menu when enabled.
+Used by **`npm run schedule`** and shown in the menu when enabled. See **[scheduler.md](scheduler.md)** for setup, terminal commands, and how it interacts with resource due times.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|

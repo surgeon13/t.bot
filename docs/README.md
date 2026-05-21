@@ -7,6 +7,7 @@ This folder contains detailed guides. For a quick start, see the [main README](.
 | Guide | Contents |
 |-------|----------|
 | [Configuration](configuration.md) | Every `config.json` option, state files, timers |
+| [Scheduler](scheduler.md) | `npm run schedule`, intervals, terminal commands |
 | [Web GUI](gui.md) | `npm run gui`, buttons, API, environment variables |
 | [Resource bonuses](resource-bonuses.md) | Shop flow, claimable vs active, batch claim |
 | [Troubleshooting](troubleshooting.md) | Login, videos, headless, debug snapshots |
@@ -21,6 +22,17 @@ t.bot automates **watching Travian Legends video ads** to claim:
 
 It does **not** send your hero on adventures, manage troops, or interact with the map beyond opening the pages needed for bonuses.
 
+## All npm commands
+
+| Command | Script | Description |
+|---------|--------|-------------|
+| `npm start` | `menu.js` | Interactive terminal menu |
+| `npm run gui` | `gui.js` | Web control panel at http://127.0.0.1:3733 |
+| `npm run bonuses` | `claim-all-bonuses.js` | One shot: login → hero bonuses → due resources → exit |
+| `npm run resources` | `claim-resource-bonuses.js` | One shot: login → force all claimable resource videos → exit |
+| `npm run schedule` | `scheduler.js` | **Loop:** repeat `bonuses` every `schedule.intervalHours` (requires `schedule.enabled`) |
+| `npm run export` | `scripts/export-zip.js` | Create `t.bot-v<version>.zip` for deployment |
+
 ## Typical workflows
 
 | Goal | Command |
@@ -28,7 +40,7 @@ It does **not** send your hero on adventures, manage troops, or interact with th
 | Click bonuses yourself in a browser UI | `npm run gui` |
 | One-shot hero + due resource bonuses | `npm run bonuses` |
 | Force all claimable resource videos now | `npm run resources` or GUI **Claim all available resources** |
-| Run on a timer | Enable `schedule` in config, then `npm run schedule` in a second terminal |
+| **Automatic runs on a timer** | [Scheduler guide](scheduler.md): `schedule.enabled: true`, then `npm run schedule` in a second terminal |
 | Tweak settings interactively | `npm start` → **(S)** settings |
 
 ## Support files (do not commit)
