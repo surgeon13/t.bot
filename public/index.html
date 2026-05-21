@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>t.bot — Travian Assistant</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">t.bot</span>
+      <span class="subtitle">Travian Assistant</span>
+    </div>
+    <div class="session" id="session-strip">
+      <span class="dot" id="session-dot"></span>
+      <span id="session-text">Connecting…</span>
+      <button id="relogin" class="ghost" title="Re-login">↻ Re-login</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- =================== Hero panel =================== -->
+    <section class="card hero-card">
+      <header class="card-header">
+        <h2>Hero</h2>
+        <div class="card-actions">
+          <button class="ghost" id="refresh-hero" data-action="refresh-hero">Refresh</button>
+        </div>
+      </header>
+      <div class="hero-grid">
+        <div class="hero-portrait">
+          <div class="avatar">🛡️</div>
+          <div>
+            <div class="hero-name" id="hero-name">Hero</div>
+            <div class="hero-level"><span class="tag">Adventures</span> <span id="hero-badge">—</span></div>
+          </div>
+        </div>
+        <div class="hero-bars">
+          <div class="bar-block">
+            <div class="bar-label"><span>Health</span><span id="hero-health-text">—</span></div>
+            <div class="bar"><div class="bar-fill health" id="hero-health-bar"></div></div>
+          </div>
+          <div class="bar-block">
+            <div class="bar-label"><span>Experience</span><span id="hero-xp-text">—</span></div>
+            <div class="bar"><div class="bar-fill xp" id="hero-xp-bar"></div></div>
+          </div>
+        </div>
+        <div class="hero-stats">
+          <div class="stat"><span class="stat-label">Fight strength</span><span class="stat-value" id="stat-power">—</span></div>
+          <div class="stat"><span class="stat-label">Off bonus</span><span class="stat-value" id="stat-off">—</span></div>
+          <div class="stat"><span class="stat-label">Def bonus</span><span class="stat-value" id="stat-def">—</span></div>
+          <div class="stat"><span class="stat-label">Resource bonus</span><span class="stat-value" id="stat-res">—</span></div>
+          <div class="stat"><span class="stat-label">Free points</span><span class="stat-value" id="stat-free">—</span></div>
+          <div class="stat"><span class="stat-label">Speed</span><span class="stat-value" id="stat-speed">—</span></div>
+          <div class="stat"><span class="stat-label">Experience</span><span class="stat-value" id="stat-xp">—</span></div>
+          <div class="stat"><span class="stat-label">Home village</span><span class="stat-value" id="stat-village">—</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================== Bonus actions =================== -->
+    <section class="card bonus-card">
+      <header class="card-header">
+        <h2>Gather bonuses</h2>
+        <div class="card-actions">
+          <span class="muted" id="bonus-next">—</span>
+          <button class="ghost" id="refresh-bonuses" data-action="refresh-bonuses">Refresh all bonuses</button>
+        </div>
+      </header>
+      <div class="bonus-grid">
+
+        <button class="bonus" data-action="bonus" data-endpoint="/api/bonus/time">
+          <span class="bonus-icon">⏱️</span>
+          <span class="bonus-title">Adventure time bonus</span>
+          <span class="bonus-sub">−25% travel time</span>
+          <span class="bonus-status" id="status-time">Ready</span>
+        </button>
+
+        <button class="bonus" data-action="bonus" data-endpoint="/api/bonus/danger">
+          <span class="bonus-icon">⚔️</span>
+          <span class="bonus-title">Adventure hardness bonus</span>
+          <span class="bonus-sub">Reduced danger</span>
+          <span class="bonus-status" id="status-danger">Ready</span>
+        </button>
+
+        <button class="bonus res-wood" data-action="bonus" data-endpoint="/api/bonus/resource/Wood">
+          <span class="bonus-icon">🌲</span>
+          <span class="bonus-title">Wood resource bonus</span>
+          <span class="bonus-sub">+15% lumber</span>
+          <span class="bonus-status" id="status-Wood">Ready</span>
+        </button>
+
+        <button class="bonus res-clay" data-action="bonus" data-endpoint="/api/bonus/resource/Clay">
+          <span class="bonus-icon">🧱</span>
+          <span class="bonus-title">Clay resource bonus</span>
+          <span class="bonus-sub">+15% clay</span>
+          <span class="bonus-status" id="status-Clay">Ready</span>
+        </button>
+
+        <button class="bonus res-iron" data-action="bonus" data-endpoint="/api/bonus/resource/Iron">
+          <span class="bonus-icon">⛏️</span>
+          <span class="bonus-title">Iron resource bonus</span>
+          <span class="bonus-sub">+15% iron</span>
+          <span class="bonus-status" id="status-Iron">Ready</span>
+        </button>
+
+        <button class="bonus res-crop" data-action="bonus" data-endpoint="/api/bonus/resource/Crop">
+          <span class="bonus-icon">🌾</span>
+          <span class="bonus-title">Crop resource bonus</span>
+          <span class="bonus-sub">+15% crop</span>
+          <span class="bonus-status" id="status-Crop">Ready</span>
+        </button>
+
+      </div>
+      <div class="resource-claim-all">
+        <button class="claim-all-resources" id="claim-all-resources" data-action="claim-all-resources">
+          Claim all available resources
+        </button>
+        <span class="muted claim-all-hint">Opens shop once, watches every claimable +15% video</span>
+        <span class="claim-all-result muted" id="claim-all-result" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <!-- =================== Totals strip =================== -->
+    <section class="card totals-card">
+      <header class="card-header"><h2>Totals</h2><div class="card-actions"><span class="muted" id="last-bonus">—</span></div></header>
+      <div class="totals-grid">
+        <div class="total"><span class="total-label">Hero ⏱️</span><span class="total-value" id="t-time">0</span></div>
+        <div class="total"><span class="total-label">Hero ⚔️</span><span class="total-value" id="t-danger">0</span></div>
+        <div class="total"><span class="total-label">Wood</span><span class="total-value" id="t-Wood">0</span></div>
+        <div class="total"><span class="total-label">Clay</span><span class="total-value" id="t-Clay">0</span></div>
+        <div class="total"><span class="total-label">Iron</span><span class="total-value" id="t-Iron">0</span></div>
+        <div class="total"><span class="total-label">Crop</span><span class="total-value" id="t-Crop">0</span></div>
+      </div>
+    </section>
+
+    <!-- =================== Extensions slot =================== -->
+    <!-- Drop new feature cards in here as the bot grows.
+         Each new feature should be self-contained with its own card. -->
+    <section class="card extensions-card" id="extensions">
+      <header class="card-header">
+        <h2>Extensions</h2>
+        <div class="card-actions"><span class="muted">space for improvements</span></div>
+      </header>
+      <ul class="extensions-list">
+        <li class="placeholder">Auto-send hero on adventures</li>
+        <li class="placeholder">Build queue manager</li>
+        <li class="placeholder">Troop training queue</li>
+        <li class="placeholder">Farm list runner</li>
+        <li class="placeholder">Marketplace exchange</li>
+        <li class="placeholder">Multi-account profiles</li>
+      </ul>
+    </section>
+
+    <!-- =================== Activity log =================== -->
+    <section class="card log-card">
+      <header class="card-header">
+        <h2>Activity</h2>
+        <div class="card-actions">
+          <button class="ghost" id="clear-log">Clear view</button>
+        </div>
+      </header>
+      <pre id="log" class="log"></pre>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

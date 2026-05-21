@@ -1,0 +1,34 @@
+{
+  "name": "t.bot",
+  "version": "0.9.1",
+  "description": "Travian helper: claim hero and resource video bonuses via Playwright.",
+  "main": "menu.js",
+  "scripts": {
+    "postinstall": "npx playwright install chromium",
+    "start": "node menu.js",
+    "bonuses": "node claim-all-bonuses.js",
+    "resources": "node claim-resource-bonuses.js",
+    "schedule": "node scheduler.js",
+    "gui": "node gui.js",
+    "export": "node scripts/export-zip.js"
+  },
+  "keywords": [
+    "travian",
+    "playwright",
+    "automation"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "chromium": "^3.0.3",
+    "express": "^4.22.2",
+    "playwright": "^1.59.1"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1"
+  }
+}

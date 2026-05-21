@@ -1,0 +1,20 @@
+{
+  "url": "https://YOUR_SERVER.travian.com/",
+  "username": "your@email.com",
+  "password": "your_password",
+  "delay": {
+    "min": 500,
+    "max": 1500
+  },
+  "autoMode": false,
+  "headless": true,
+  "browserChannel": true,
+  "schedule": {
+    "enabled": false,
+    "intervalHours": 3
+  },
+  "resourceBonuses": {
+    "enabled": false,
+    "intervalHours": 8
+  }
+}
