@@ -15,7 +15,7 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const express = require('express');
 const log = require('./logger');
-const { launchBrowser, newGameContext, proxyLogLabel } = require('./browserLaunch');
+const { launchBrowser, newGameContext, proxyLogLabel, proxySettings } = require('./browserLaunch');
 const { loadConfig, saveConfig, login } = require('./auth');
 const { readPlayerName, readPublicIp } = require('./accountInfo');
 const {
