@@ -29,6 +29,13 @@ copy config.example.json config.json
   "autoMode": false,
   "headless": true,
   "browserChannel": true,
+  "proxy": {
+    "enabled": false,
+    "server": "http://127.0.0.1:8080",
+    "username": "",
+    "password": "",
+    "bypass": "localhost,127.0.0.1"
+  },
   "schedule": {
     "enabled": false,
     "intervalHours": 3
@@ -59,6 +66,34 @@ copy config.example.json config.json
 | `autoMode` | boolean | `false` | If `true`, `npm start` claims hero + resource bonuses once after login, then opens the menu. |
 | `headless` | boolean | **`true`** | Run Playwright without a visible window. Set `false` if videos fail to start or finish. |
 | `browserChannel` | boolean | `true` | When not `false`, launch tries **installed Google Chrome** (`channel: 'chrome'`) before bundled Chromium — often better for headless video codecs. |
+
+### Proxy (`proxy`)
+
+All browser traffic (GUI, menu, scheduler, `npm run bonuses` / `resources`) goes through the proxy when enabled. Implemented via [Playwright’s `proxy` option](https://playwright.dev/docs/network#http-proxy) on `browser.newContext()`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `proxy.enabled` | boolean | `false` | Set `true` to route Chromium through `proxy.server`. |
+| `proxy.server` | string | `""` | Required when enabled. e.g. `http://host:8080`, `https://host:443`, `socks5://host:1080` |
+| `proxy.username` | string | `""` | Optional proxy authentication. |
+| `proxy.password` | string | `""` | Optional proxy password (stored in `config.json` — keep file private). |
+| `proxy.bypass` | string | `""` | Optional comma-separated hosts that skip the proxy (Playwright `bypass` list). |
+
+**Example (authenticated HTTP proxy):**
+
+```json
+"proxy": {
+  "enabled": true,
+  "server": "http://proxy.example.com:3128",
+  "username": "myuser",
+  "password": "mypass",
+  "bypass": "localhost,127.0.0.1"
+}
+```
+
+After changing proxy settings, restart long-running processes or use GUI **Re-login** so a new browser context is created.
+
+Legacy: you may set `"proxy": "http://host:8080"` as a string instead of an object; it is treated as enabled with that server.
 
 ### Scheduler (`schedule`)
 

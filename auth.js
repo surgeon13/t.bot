@@ -19,6 +19,7 @@ const DEFAULT_CONFIG = {
   browserChannel: true,
   schedule: { enabled: false, intervalHours: 3 },
   resourceBonuses: { enabled: false, intervalHours: 8 },
+  proxy: { enabled: false, server: '', username: '', password: '', bypass: '' },
 };
 const LOGIN_FORM_SELECTOR = 'input[name="name"], input[name="password"]';
 const LOGIN_SUBMIT_SELECTOR = 'button.textButtonV2[type="submit"], button[type="submit"]';

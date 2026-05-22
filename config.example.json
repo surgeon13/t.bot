@@ -9,6 +9,13 @@
   "autoMode": false,
   "headless": true,
   "browserChannel": true,
+  "proxy": {
+    "enabled": false,
+    "server": "http://127.0.0.1:8080",
+    "username": "",
+    "password": "",
+    "bypass": "localhost,127.0.0.1"
+  },
   "schedule": {
     "enabled": false,
     "intervalHours": 3

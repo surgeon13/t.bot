@@ -2,12 +2,12 @@
 
 All notable changes to **t.bot** are documented here. The project follows [Semantic Versioning](https://semver.org/) loosely while in pre-1.0.
 
-## Unreleased
+## 0.9.2 — 2026-05-21
 
-### Documentation
+### Added
 
-- Added **[docs/scheduler.md](docs/scheduler.md)** — full guide for `npm run schedule`, config, terminal commands, and comparison with other commands.
-- Expanded command tables in README and docs index (scheduler was previously only mentioned in passing).
+- **HTTP/HTTPS/SOCKS5 proxy** — optional `proxy` block in `config.json` (Playwright `browser.newContext({ proxy })`). Applies to GUI, menu, scheduler, and one-shot CLI runs.
+- Menu **(S)** settings for proxy on/off, server, username, password, and bypass list.
 
 ## 0.9.1 — 2026-05-21
 
@@ -21,6 +21,7 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 - **Per-resource claim** — `claimResourceBonus(page, 'Wood'|'Clay'|'Iron'|'Crop')` for GUI single-button claims.
 - **Debug endpoints** — `GET /api/debug/dom`, `/api/debug/shop`, `/api/debug/advantages` for selector tuning.
 - **Documentation** — `docs/` folder (configuration, GUI, troubleshooting, architecture).
+- **[docs/scheduler.md](docs/scheduler.md)** and expanded command tables in README.
 
 ### Changed
 

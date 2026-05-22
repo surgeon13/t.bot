@@ -15,7 +15,7 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const express = require('express');
 const log = require('./logger');
-const { launchBrowser, newGameContext } = require('./browserLaunch');
+const { launchBrowser, newGameContext, proxyLogLabel } = require('./browserLaunch');
 const { loadConfig, login } = require('./auth');
 const { claimHeroBonus, openAdventuresPage, readAdventurePageStatus } = require('./adventures');
 const {
@@ -85,7 +85,7 @@ async function ensureSession() {
   const cfg = loadConfig();
   if (!browser) {
     const headless = cfg.headless !== false;
-    log.info(TAG, `Launching browser (headless=${headless})`);
+    log.info(TAG, `Launching browser (headless=${headless}, proxy=${proxyLogLabel(cfg)})`);
     browser = await launchBrowser({ headless });
     context = await newGameContext(browser);
   }

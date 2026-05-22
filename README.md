@@ -1,6 +1,6 @@
 # t.bot
 
-**Version 0.9.1**
+**Version 0.9.2**
 
 Node.js + [Playwright](https://playwright.dev/) helper for **Travian Legends** video bonuses: hero adventure **time** and **danger** reductions, plus **+15%** Wood / Clay / Iron / Crop production from the shop **Advantages** tab.
 
@@ -8,10 +8,11 @@ The bot watches the required video ads and clicks through Travian’s dialogs. I
 
 > Use only in line with [Travian’s](https://www.travian.com/) terms of service and your local rules.
 
-## Features (0.9.1)
+## Features (0.9.2)
 
 - **Web GUI** — per-bonus buttons, hero stats, live log, **Claim all available resources**
 - **Headless by default** — optional visible browser; prefers installed Chrome for video ads
+- **Optional HTTP/SOCKS5 proxy** — route all browser traffic through `config.json` → `proxy`
 - **CLI menu**, **one-shot** scripts, and **scheduler** loop
 - **Resource bonus polling** — claimable vs active buff + countdown timers in the GUI
 - **Debug helpers** — snapshots under `debug/` and `/api/debug/*` when tuning selectors
@@ -96,6 +97,7 @@ npm run gui
 |-----|---------|--------|
 | `headless` | `true` | Set `false` if videos fail |
 | `browserChannel` | `true` | Use installed Chrome when possible |
+| `proxy.enabled` | `false` | Route browser via `proxy.server` (http/https/socks5) |
 | `resourceBonuses.enabled` | `false` | Required for scheduler/menu auto resource runs |
 | `resourceBonuses.intervalHours` | `8` | Between scheduled resource batch attempts |
 | `schedule.enabled` | `false` | Enables periodic `npm run schedule` |

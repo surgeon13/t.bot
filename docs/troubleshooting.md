@@ -1,5 +1,19 @@
 # Troubleshooting
 
+## Proxy / connection errors
+
+**Symptoms:** Timeout on login, `ERR_PROXY`, or Travian never loads.
+
+**Checks:**
+
+1. `proxy.server` must include a scheme: `http://`, `https://`, or `socks5://`.  
+2. Test the proxy with a normal browser first.  
+3. Set `proxy.enabled` to `false` to confirm the bot works without it.  
+4. After changing proxy in config, restart `npm run gui` / `npm run schedule` or click **Re-login** in the GUI.  
+5. Use `proxy.bypass` for hosts that must not use the proxy (e.g. `localhost`).
+
+Credentials live in `config.json` — do not commit that file.
+
 ## Login fails or times out
 
 **Symptoms:** `Login failed`, password field timeout, GUI shows “Not logged in”.

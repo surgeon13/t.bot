@@ -3,7 +3,7 @@
 const readline = require('readline');
 
 const log = require('./logger');
-const { launchWithPage } = require('./browserLaunch');
+const { launchWithPage, proxyLogLabel } = require('./browserLaunch');
 const { nextRunMenuLine } = require('./scheduleState');
 const { loadConfig, saveConfig, login } = require('./auth');
 const { handleAdventures, openAdventuresPage, readAdventurePageStatus } = require('./adventures');
@@ -33,7 +33,7 @@ async function runWithTerminalCommands(rl, tag, status, task) {
 
 function printBanner() {
   console.log('╔══════════════════════════════╗');
-  console.log('║    t.bot v0.9.1 – Travian    ║');
+  console.log('║    t.bot v0.9.2 – Travian    ║');
   console.log('╚══════════════════════════════╝\n');
 }
 
@@ -47,9 +47,11 @@ function printMenu() {
   const res     = cfg.resourceBonuses || {};
   const resOn   = (res.enabled ?? false) ? 'ON' : 'OFF';
   const resH    = res.intervalHours != null ? res.intervalHours : 8;
+  const proxy   = proxyLogLabel(cfg);
   console.log(`  Session        : Connected ✓`);
   console.log(`  Auto mode      : ${auto}`);
   console.log(`  Headless       : ${head}`);
+  console.log(`  Proxy          : ${proxy}`);
   console.log(`  Schedule       : ${schOn}  (every ${everyH}h)`);
   console.log(`  Resources      : ${resOn}  (every ${resH}h)`);
   console.log(nextRunMenuLine());
@@ -76,6 +78,12 @@ async function showSettings(rl) {
   const dmax     = await ask(rl, `  Delay max (ms)   [${cfg.delay?.max ?? 1500}]: `);
   const autoIn   = await ask(rl, `  Auto mode        [${(cfg.autoMode ?? false) ? 'ON' : 'OFF'}] (on/off): `);
   const headIn   = await ask(rl, `  Headless browser [${(cfg.headless !== false) ? 'ON' : 'OFF'}] (on/off): `);
+  if (!cfg.proxy) cfg.proxy = { enabled: false, server: '', username: '', password: '', bypass: '' };
+  const proxyE   = await ask(rl, `  Proxy            [${cfg.proxy.enabled ? 'ON' : 'OFF'}] (on/off): `);
+  const proxyS   = await ask(rl, `  Proxy server     [${cfg.proxy.server || ''}] (http://host:port or socks5://…): `);
+  const proxyU   = await ask(rl, `  Proxy username   [${cfg.proxy.username || ''}]: `);
+  const proxyP   = await ask(rl, `  Proxy password   [${cfg.proxy.password ? '********' : ''}]: `);
+  const proxyB   = await ask(rl, `  Proxy bypass     [${cfg.proxy.bypass || ''}] (comma hosts, optional): `);
   if (!cfg.schedule) cfg.schedule = { enabled: false, intervalHours: 3 };
   const schE     = await ask(rl, `  Periodic claims  [${cfg.schedule.enabled ? 'ON' : 'OFF'}] (on/off, uses npm run schedule): `);
   const schH     = await ask(rl, `  Every N hours    [${cfg.schedule.intervalHours}]: `);
@@ -93,6 +101,12 @@ async function showSettings(rl) {
   if (autoIn.trim().toLowerCase() === 'off') cfg.autoMode = false;
   if (headIn.trim().toLowerCase() === 'on')  cfg.headless = true;
   if (headIn.trim().toLowerCase() === 'off') cfg.headless = false;
+  if (proxyE.trim().toLowerCase() === 'on')  cfg.proxy.enabled = true;
+  if (proxyE.trim().toLowerCase() === 'off') cfg.proxy.enabled = false;
+  if (proxyS.trim()) cfg.proxy.server = proxyS.trim();
+  if (proxyU.trim()) cfg.proxy.username = proxyU.trim();
+  if (proxyP.trim()) cfg.proxy.password = proxyP.trim();
+  if (proxyB.trim()) cfg.proxy.bypass = proxyB.trim();
   if (schE.trim().toLowerCase() === 'on')  cfg.schedule.enabled = true;
   if (schE.trim().toLowerCase() === 'off') cfg.schedule.enabled = false;
   if (schH.trim()) {
