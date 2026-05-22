@@ -78,10 +78,6 @@ Resource buttons show status from the last poll:
 
 After a successful claim, the UI shows an optimistic **~8h active** until the next refresh confirms timers.
 
-### Totals
-
-Lifetime counters for how many times each bonus type was claimed (from `totals` module).
-
 ### Live log
 
 Server-sent events stream from `bot.log` (and in-memory buffer). Successful bonus lines trigger a quiet status refresh after a few seconds.
@@ -113,7 +109,7 @@ All `POST` bonus routes clear the bonus poll cache and run under a mutex (queue 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | `{ loggedIn, busy, action }` |
-| `GET` | `/api/status` | Session, totals, **account**, **proxy** status, **proxyConfig** for the form |
+| `GET` | `/api/status` | Session, **account**, **proxy** status, **proxyConfig** for the form |
 | `GET` | `/api/config/proxy` | Proxy fields for the GUI form (password not returned; `hasPassword` flag) |
 | `PUT` | `/api/config/proxy` | Save proxy to `config.json` and close session |
 | `POST` | `/api/proxy/test` | Re-test proxy through the browser; returns `{ ok, proxy }` |

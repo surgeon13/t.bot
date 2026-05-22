@@ -35,7 +35,6 @@ const {
   __testInternals,
 } = require('./resourceBonuses');
 const { readHeroStats } = require('./heroStats');
-const { getTotals } = require('./totals');
 const { getLastCompletedBonus, getLastCompletedBonuses } = require('./runState');
 
 const TAG = 'gui';
@@ -278,7 +277,6 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/status', async (_req, res) => {
   const cfg = loadConfig();
-  const totals = getTotals();
   const resourceState = readResourceBonusState();
   res.json({
     loggedIn,
@@ -290,7 +288,6 @@ app.get('/api/status', async (_req, res) => {
     resourceBonuses: resourceBonusSettings(cfg),
     nextResourceBonusLine: nextResourceBonusRunLine(),
     resourceState,
-    totals,
     lastBonus: getLastCompletedBonus(),
     recentBonuses: getLastCompletedBonuses(8),
     proxy: proxyPayloadForApi(),

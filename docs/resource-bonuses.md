@@ -65,6 +65,4 @@ When `resourceBonuses.enabled` is `true`:
 
 `intervalHours` in config (default **8**) controls the spacing between successful batch runs.
 
-## Totals
-
-Each successful video increments the matching counter in the totals module (`woodBonuses`, `clayBonuses`, etc.) shown in the GUI totals strip.
+Each successful video still increments counters in `totals-state.json` (visible in the live log and terminal `status` command).
