@@ -509,6 +509,56 @@ button.bonus.res-clay:hover  { border-color: #b45309; }
 button.bonus.res-iron:hover  { border-color: #94a3b8; }
 button.bonus.res-crop:hover  { border-color: #facc15; }
 
+/* ---------------- Lifetime totals ---------------- */
+.totals-card { grid-column: 2; grid-row: 2; }
+.totals-lead {
+  margin: 0;
+  padding: 0 16px 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.totals-lead code {
+  font-size: 11px;
+  color: var(--text-mute);
+}
+.totals-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 0 16px 14px;
+}
+.total {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 10px 8px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.total-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.total-label {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.total-help {
+  margin-top: 3px;
+  color: var(--text-mute);
+  font-size: 10px;
+  line-height: 1.25;
+  max-width: 140px;
+}
+
 /* ---------------- Extensions slot ---------------- */
 .extensions-card { grid-column: 1 / span 2; }
 .extensions-list {
@@ -557,10 +607,11 @@ button.bonus.res-crop:hover  { border-color: #facc15; }
 /* ---------------- Small screens ---------------- */
 @media (max-width: 900px) {
   main { grid-template-columns: 1fr; }
-  .hero-card, .bonus-card, .extensions-card, .log-card {
+  .hero-card, .bonus-card, .totals-card, .extensions-card, .log-card {
     grid-column: 1;
     grid-row: auto;
   }
   .bonus-grid { grid-template-columns: 1fr 1fr; }
+  .totals-grid { grid-template-columns: repeat(2, 1fr); }
   .extensions-list { grid-template-columns: 1fr 1fr; }
 }

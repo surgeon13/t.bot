@@ -65,4 +65,4 @@ When `resourceBonuses.enabled` is `true`:
 
 `intervalHours` in config (default **8**) controls the spacing between successful batch runs.
 
-Each successful video still increments counters in `totals-state.json` (visible in the live log and terminal `status` command).
+Each successful video increments the matching counter in `totals-state.json`, shown in the GUI **Lifetime totals** panel and in the terminal `status` command.

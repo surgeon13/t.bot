@@ -163,6 +163,49 @@
       </div>
     </section>
 
+    <section class="card totals-card">
+      <header class="card-header">
+        <h2>Lifetime totals</h2>
+        <div class="card-actions"><span class="muted" id="last-bonus">Last completed: —</span></div>
+      </header>
+      <p class="totals-lead">
+        Count of <strong>successful video bonuses</strong> claimed by this bot on this PC.
+        Stored in <code>totals-state.json</code> — only goes up when a video finishes; not your in-game buff timers.
+      </p>
+      <div class="totals-grid">
+        <div class="total">
+          <span class="total-value" id="t-time">0</span>
+          <span class="total-label">Hero time</span>
+          <span class="total-help">Adventure travel −25% videos</span>
+        </div>
+        <div class="total">
+          <span class="total-value" id="t-danger">0</span>
+          <span class="total-label">Hero danger</span>
+          <span class="total-help">Adventure danger reduction videos</span>
+        </div>
+        <div class="total">
+          <span class="total-value" id="t-Wood">0</span>
+          <span class="total-label">Wood</span>
+          <span class="total-help">+15% lumber production videos</span>
+        </div>
+        <div class="total">
+          <span class="total-value" id="t-Clay">0</span>
+          <span class="total-label">Clay</span>
+          <span class="total-help">+15% clay production videos</span>
+        </div>
+        <div class="total">
+          <span class="total-value" id="t-Iron">0</span>
+          <span class="total-label">Iron</span>
+          <span class="total-help">+15% iron production videos</span>
+        </div>
+        <div class="total">
+          <span class="total-value" id="t-Crop">0</span>
+          <span class="total-label">Crop</span>
+          <span class="total-help">+15% crop production videos</span>
+        </div>
+      </div>
+    </section>
+
     <!-- =================== Extensions slot =================== -->
     <!-- Drop new feature cards in here as the bot grows.
          Each new feature should be self-contained with its own card. -->

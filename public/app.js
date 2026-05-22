@@ -52,6 +52,21 @@ function paintStatus(s) {
     $('#bonus-next').textContent = s.nextResourceBonusLine.replace(/^\s*Resource bonus\s*:\s*/, '');
   }
 
+  if (s.totals) {
+    setText('#t-time',   s.totals.heroTimeBonuses);
+    setText('#t-danger', s.totals.heroDangerBonuses);
+    setText('#t-Wood',   s.totals.woodBonuses);
+    setText('#t-Clay',   s.totals.clayBonuses);
+    setText('#t-Iron',   s.totals.ironBonuses);
+    setText('#t-Crop',   s.totals.cropBonuses);
+  }
+
+  if (s.lastBonus) {
+    setText('#last-bonus', `Last completed: ${s.lastBonus}`);
+  } else {
+    setText('#last-bonus', 'Last completed: none yet');
+  }
+
   if (s.proxy) paintProxy(s.proxy);
   if (s.account) paintAccount(s.account);
   if (s.proxyConfig && !proxyFormDirty) fillProxyForm(s.proxyConfig);

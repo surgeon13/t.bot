@@ -78,6 +78,10 @@ Resource buttons show status from the last poll:
 
 After a successful claim, the UI shows an optimistic **~8h active** until the next refresh confirms timers.
 
+### Lifetime totals
+
+Shows how many times each **video bonus was successfully watched** by t.bot on this machine (persisted in `totals-state.json`). This is not the same as “buff active now” on the bonus buttons — it is a running success counter. **Last completed** is the most recent claim the bot logged.
+
 ### Live log
 
 Server-sent events stream from `bot.log` (and in-memory buffer). Successful bonus lines trigger a quiet status refresh after a few seconds.
@@ -109,7 +113,7 @@ All `POST` bonus routes clear the bonus poll cache and run under a mutex (queue 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | `{ loggedIn, busy, action }` |
-| `GET` | `/api/status` | Session, **account**, **proxy** status, **proxyConfig** for the form |
+| `GET` | `/api/status` | Session, **totals**, **account**, **proxy** status, **proxyConfig** for the form |
 | `GET` | `/api/config/proxy` | Proxy fields for the GUI form (password not returned; `hasPassword` flag) |
 | `PUT` | `/api/config/proxy` | Save proxy to `config.json` and close session |
 | `POST` | `/api/proxy/test` | Re-test proxy through the browser; returns `{ ok, proxy }` |
