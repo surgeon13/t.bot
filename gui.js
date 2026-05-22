@@ -17,6 +17,11 @@ const express = require('express');
 const log = require('./logger');
 const { launchBrowser, newGameContext, proxyLogLabel } = require('./browserLaunch');
 const { loadConfig, login } = require('./auth');
+const {
+  getProxyInfo,
+  testProxyWithPage,
+  proxyStatusWithoutSession,
+} = require('./proxyStatus');
 const { claimHeroBonus, openAdventuresPage, readAdventurePageStatus } = require('./adventures');
 const {
   claimResourceBonus,
@@ -79,6 +84,34 @@ let browser = null;
 let context = null;
 let page = null;
 let loggedIn = false;
+/** @type {object|null} Last proxy connectivity check for the GUI */
+let proxyStatusCache = null;
+
+function proxyPayloadForApi() {
+  if (proxyStatusCache) return proxyStatusCache;
+  return proxyStatusWithoutSession(loadConfig());
+}
+
+async function refreshProxyStatus(targetPage = page) {
+  const cfg = loadConfig();
+  const info = getProxyInfo(cfg);
+  if (!info.configured) {
+    proxyStatusCache = proxyStatusWithoutSession(cfg);
+    return proxyStatusCache;
+  }
+  if (!targetPage || targetPage.isClosed()) {
+    proxyStatusCache = proxyStatusWithoutSession(cfg);
+    return proxyStatusCache;
+  }
+  log.info(TAG, `Testing proxy: ${info.display}`);
+  proxyStatusCache = await testProxyWithPage(targetPage, cfg);
+  if (proxyStatusCache.working) {
+    log.info(TAG, `Proxy OK (${proxyStatusCache.latencyMs}ms)`);
+  } else {
+    log.warn(TAG, `Proxy check failed: ${proxyStatusCache.message}`);
+  }
+  return proxyStatusCache;
+}
 
 async function ensureSession() {
   if (browser && page && loggedIn) return;
@@ -97,13 +130,30 @@ async function ensureSession() {
   loggedIn = await login(page);
   if (!loggedIn) {
     log.warn(TAG, 'Login failed');
+    const cfg = loadConfig();
+    if (getProxyInfo(cfg).configured) {
+      proxyStatusCache = {
+        ...getProxyInfo(cfg),
+        state: 'fail',
+        working: false,
+        message: 'Login failed (proxy or credentials)',
+        latencyMs: null,
+        checkedAt: new Date().toISOString(),
+      };
+    } else {
+      proxyStatusCache = proxyStatusWithoutSession(cfg);
+    }
   } else {
     log.info(TAG, 'Logged in');
+    await refreshProxyStatus(page).catch(err => {
+      log.warn(TAG, `Proxy check error: ${err.message}`);
+    });
   }
 }
 
 async function closeSession() {
   loggedIn = false;
+  proxyStatusCache = null;
   try { if (page && !page.isClosed()) await page.close(); } catch {}
   try { if (context) await context.close(); } catch {}
   try { if (browser) await browser.close(); } catch {}
@@ -161,6 +211,7 @@ app.get('/api/status', async (_req, res) => {
     totals,
     lastBonus: getLastCompletedBonus(),
     recentBonuses: getLastCompletedBonuses(8),
+    proxy: proxyPayloadForApi(),
   });
 });
 
@@ -472,7 +523,34 @@ app.post('/api/relogin', async (_req, res) => {
     await closeSession();
     await ensureSession();
   });
-  res.json({ ok: loggedIn });
+  res.json({ ok: loggedIn, proxy: proxyPayloadForApi() });
+});
+
+app.post('/api/proxy/test', async (_req, res) => {
+  const cfg = loadConfig();
+  const info = getProxyInfo(cfg);
+  if (!info.configured) {
+    proxyStatusCache = proxyStatusWithoutSession(cfg);
+    return res.json({ ok: true, proxy: proxyStatusCache });
+  }
+
+  const result = await lock.run('proxyTest', async () => {
+    await ensureSession();
+    if (!loggedIn || !page || page.isClosed()) {
+      proxyStatusCache = {
+        ...info,
+        state: 'fail',
+        working: false,
+        message: 'Not logged in — cannot test proxy',
+        checkedAt: new Date().toISOString(),
+      };
+      return { ok: false, proxy: proxyStatusCache };
+    }
+    const proxy = await refreshProxyStatus(page);
+    return { ok: proxy.working === true, proxy };
+  });
+
+  res.json(result);
 });
 
 /* --------------------------------------------------------------------- */

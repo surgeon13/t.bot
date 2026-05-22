@@ -27,6 +27,19 @@ The GUI process:
 
 Shows the configured username and the next scheduled resource bonus line when available.
 
+### Proxy bar (below header)
+
+Shows whether a proxy is configured in `config.json`, the **server address** in use (with username when set, never the password), and connectivity state:
+
+| Indicator | Meaning |
+|-----------|---------|
+| Gray dot — **Off** | `proxy.enabled` is false |
+| Amber — **Unknown** | Proxy on but not tested yet (log in first) |
+| Green — **Working** | Last test reached Travian through the browser context |
+| Red — **Failed** | Timeout or unexpected page (check server, auth, bypass) |
+
+**Test proxy** runs `POST /api/proxy/test` (opens Travian home URL through the same Playwright context as bonuses). Auto-tested after a successful login / re-login.
+
 ### Hero
 
 Displays parsed stats from `/hero/attributes` (health, XP, fight strength, off/def bonus, resource bonus %, speed, home village, free attribute points, adventure badge).
@@ -86,7 +99,8 @@ All `POST` bonus routes clear the bonus poll cache and run under a mutex (queue 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | `{ loggedIn, busy, action }` |
-| `GET` | `/api/status` | Session, totals, last bonus, schedule lines |
+| `GET` | `/api/status` | Session, totals, last bonus, schedule lines, **proxy** status |
+| `POST` | `/api/proxy/test` | Re-test proxy through the browser; returns `{ ok, proxy }` |
 | `GET` | `/api/hero?deep=1` | Hero stats object |
 | `GET` | `/api/bonuses/status` | Hero + resource poll; `?force=1` bypasses cache |
 | `GET` | `/api/resources/status` | Resource boxes only |

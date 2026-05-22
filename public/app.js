@@ -62,6 +62,86 @@ function paintStatus(s) {
   }
 
   if (s.lastBonus) setText('#last-bonus', `Last: ${s.lastBonus}`);
+
+  if (s.proxy) paintProxy(s.proxy);
+}
+
+function paintProxy(p) {
+  const dot = $('#proxy-dot');
+  const addr = $('#proxy-address');
+  const txt = $('#proxy-status-text');
+  const btn = $('#test-proxy');
+  if (!dot || !addr || !txt) return;
+
+  const state = p.state || (p.configured ? 'unknown' : 'off');
+  dot.className = `proxy-dot ${state}`;
+
+  if (!p.enabled && !p.configured) {
+    addr.textContent = 'Off';
+    addr.title = 'Proxy disabled in config.json';
+    txt.className = 'proxy-status-text';
+    txt.textContent = 'Not configured';
+    if (btn) btn.disabled = true;
+    return;
+  }
+
+  if (p.missingServer) {
+    addr.textContent = 'No server set';
+    addr.title = 'proxy.enabled is true but proxy.server is empty';
+    txt.className = 'proxy-status-text fail';
+    txt.textContent = 'Fix config.json';
+    if (btn) btn.disabled = true;
+    return;
+  }
+
+  addr.textContent = p.display || p.server || '—';
+  addr.title = p.server || '';
+  if (btn) btn.disabled = false;
+
+  txt.className = `proxy-status-text ${state}`;
+  if (state === 'ok') {
+    const ms = p.latencyMs != null ? ` · ${Math.round(p.latencyMs / 1000)}s` : '';
+    txt.textContent = `Working${ms}${p.message ? ` — ${p.message}` : ''}`;
+  } else if (state === 'fail') {
+    txt.textContent = p.message || 'Connection failed';
+  } else if (state === 'unknown') {
+    txt.textContent = p.message || 'Log in to test';
+  } else if (state === 'checking') {
+    txt.textContent = 'Testing…';
+  } else {
+    txt.className = 'proxy-status-text';
+    txt.textContent = p.message || 'Off';
+  }
+}
+
+async function testProxy() {
+  const btn = $('#test-proxy');
+  const dot = $('#proxy-dot');
+  const txt = $('#proxy-status-text');
+  if (!btn || btn.disabled) return;
+
+  btn.disabled = true;
+  if (dot) dot.className = 'proxy-dot checking';
+  if (txt) {
+    txt.className = 'proxy-status-text';
+    txt.textContent = 'Testing through browser…';
+  }
+
+  try {
+    const res = await fetch('/api/proxy/test', { method: 'POST' });
+    const data = await res.json();
+    if (data.proxy) paintProxy(data.proxy);
+    else if (txt) txt.textContent = 'No response from server';
+  } catch {
+    if (txt) {
+      txt.className = 'proxy-status-text fail';
+      txt.textContent = 'Network error';
+    }
+    if (dot) dot.className = 'proxy-dot fail';
+  } finally {
+    btn.disabled = false;
+    fetchStatus();
+  }
 }
 
 async function refreshHero(deep = true) {
@@ -531,6 +611,7 @@ document.addEventListener('click', ev => {
 });
 
 $('#relogin').addEventListener('click', relogin);
+$('#test-proxy')?.addEventListener('click', testProxy);
 $('#clear-log').addEventListener('click', () => { logEl.innerHTML = ''; });
 
 setAllBonusStatusesPolling();

@@ -2,6 +2,12 @@
 
 All notable changes to **t.bot** are documented here. The project follows [Semantic Versioning](https://semver.org/) loosely while in pre-1.0.
 
+## Unreleased
+
+### Added
+
+- **GUI proxy bar** — shows configured proxy address, working / failed / off state, and **Test proxy** button (`POST /api/proxy/test`). Auto-check after login.
+
 ## 0.9.2 — 2026-05-21
 
 ### Added
