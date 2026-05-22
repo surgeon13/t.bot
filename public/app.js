@@ -64,48 +64,162 @@ function paintStatus(s) {
   if (s.lastBonus) setText('#last-bonus', `Last: ${s.lastBonus}`);
 
   if (s.proxy) paintProxy(s.proxy);
+  if (s.account) paintAccount(s.account);
+  if (s.proxyConfig && !proxyFormDirty) fillProxyForm(s.proxyConfig);
+}
+
+let proxyFormDirty = false;
+
+function paintAccount(a) {
+  const player = $('#acc-player');
+  const login = $('#acc-login');
+  const ip = $('#acc-ip');
+  if (!player || !login || !ip) return;
+
+  player.textContent = a.playerName || (a.loggedIn === false ? '—' : 'Unknown');
+  player.title = a.playerName || 'In-game name from Travian UI';
+  login.textContent = a.loginUsername || '—';
+  login.title = a.serverUrl || '';
+
+  if (a.publicIp) {
+    ip.textContent = a.publicIp;
+    ip.title = a.ipSource ? `Via ${a.ipSource}` : 'Outbound IP seen by the browser';
+    ip.classList.remove('fail');
+  } else if (a.ipError) {
+    ip.textContent = 'Unavailable';
+    ip.title = a.ipError;
+    ip.classList.add('fail');
+  } else {
+    ip.textContent = '—';
+    ip.title = 'Log in and refresh';
+    ip.classList.remove('fail');
+  }
+}
+
+function fillProxyForm(cfg) {
+  const en = $('#proxy-enabled');
+  const srv = $('#proxy-server');
+  const user = $('#proxy-username');
+  const bypass = $('#proxy-bypass');
+  if (!en || !srv) return;
+  en.checked = !!cfg.enabled;
+  srv.value = cfg.server || '';
+  if (user) user.value = cfg.username || '';
+  if (bypass) bypass.value = cfg.bypass || '';
+  const pass = $('#proxy-password');
+  if (pass) {
+    pass.value = '';
+    pass.placeholder = cfg.hasPassword ? 'Saved (leave blank to keep)' : 'Optional';
+  }
+}
+
+async function loadProxyForm() {
+  try {
+    const res = await fetch('/api/config/proxy');
+    const data = await res.json();
+    if (data.proxy) {
+      fillProxyForm(data.proxy);
+      proxyFormDirty = false;
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function saveProxyForm(ev) {
+  ev.preventDefault();
+  const hint = $('#proxy-save-hint');
+  const btn = $('#proxy-form')?.querySelector('.proxy-save');
+  if (btn) btn.disabled = true;
+  if (hint) {
+    hint.className = 'proxy-hint muted';
+    hint.textContent = 'Saving…';
+  }
+
+  const body = {
+    enabled: $('#proxy-enabled')?.checked ?? false,
+    server: $('#proxy-server')?.value?.trim() ?? '',
+    username: $('#proxy-username')?.value?.trim() ?? '',
+    bypass: $('#proxy-bypass')?.value?.trim() ?? '',
+    password: $('#proxy-password')?.value ?? '',
+  };
+
+  try {
+    const res = await fetch('/api/config/proxy', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.proxy) fillProxyForm(data.proxy);
+    if (data.proxyStatus) paintProxy(data.proxyStatus);
+    if (hint) {
+      hint.className = data.ok ? 'proxy-hint ok' : 'proxy-hint fail';
+      hint.textContent = data.message || (data.ok ? 'Saved' : 'Failed');
+    }
+    if (!data.ok) return;
+    proxyFormDirty = false;
+    bonusesSynced = false;
+    fetchStatus();
+  } catch {
+    if (hint) {
+      hint.className = 'proxy-hint fail';
+      hint.textContent = 'Network error';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function refreshAccount() {
+  const btn = $('#refresh-account');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/account/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (data.account) paintAccount(data.account);
+    fetchStatus();
+  } catch {
+    setText('#acc-ip', 'Error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function paintProxy(p) {
   const dot = $('#proxy-dot');
-  const addr = $('#proxy-address');
   const txt = $('#proxy-status-text');
   const btn = $('#test-proxy');
-  if (!dot || !addr || !txt) return;
+  if (!dot || !txt) return;
 
   const state = p.state || (p.configured ? 'unknown' : 'off');
   dot.className = `proxy-dot ${state}`;
 
   if (!p.enabled && !p.configured) {
-    addr.textContent = 'Off';
-    addr.title = 'Proxy disabled in config.json';
     txt.className = 'proxy-status-text';
-    txt.textContent = 'Not configured';
+    txt.textContent = 'Off — enable below and save';
     if (btn) btn.disabled = true;
     return;
   }
 
   if (p.missingServer) {
-    addr.textContent = 'No server set';
-    addr.title = 'proxy.enabled is true but proxy.server is empty';
     txt.className = 'proxy-status-text fail';
-    txt.textContent = 'Fix config.json';
+    txt.textContent = 'Enabled but server is empty';
     if (btn) btn.disabled = true;
     return;
   }
 
-  addr.textContent = p.display || p.server || '—';
-  addr.title = p.server || '';
   if (btn) btn.disabled = false;
 
   txt.className = `proxy-status-text ${state}`;
+  const addrLabel = p.display || p.server || '';
   if (state === 'ok') {
     const ms = p.latencyMs != null ? ` · ${Math.round(p.latencyMs / 1000)}s` : '';
-    txt.textContent = `Working${ms}${p.message ? ` — ${p.message}` : ''}`;
+    txt.textContent = `${addrLabel} — Working${ms}`;
   } else if (state === 'fail') {
-    txt.textContent = p.message || 'Connection failed';
+    txt.textContent = `${addrLabel} — ${p.message || 'Failed'}`;
   } else if (state === 'unknown') {
-    txt.textContent = p.message || 'Log in to test';
+    txt.textContent = `${addrLabel} — ${p.message || 'Log in to test'}`;
   } else if (state === 'checking') {
     txt.textContent = 'Testing…';
   } else {
@@ -612,7 +726,12 @@ document.addEventListener('click', ev => {
 
 $('#relogin').addEventListener('click', relogin);
 $('#test-proxy')?.addEventListener('click', testProxy);
+$('#refresh-account')?.addEventListener('click', refreshAccount);
+$('#proxy-form')?.addEventListener('submit', saveProxyForm);
+$('#proxy-form')?.addEventListener('input', () => { proxyFormDirty = true; });
 $('#clear-log').addEventListener('click', () => { logEl.innerHTML = ''; });
+
+loadProxyForm();
 
 setAllBonusStatusesPolling();
 fetchStatus();

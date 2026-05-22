@@ -6,6 +6,8 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 
 ### Added
 
+- **GUI account bar** — player name (from game UI), login username, public IP (browser/proxy egress), **Refresh** button.
+- **GUI proxy editor** — form saves to `config.json` via `PUT /api/config/proxy`; session restarts on save; **Re-login** applies changes.
 - **GUI proxy bar** — shows configured proxy address, working / failed / off state, and **Test proxy** button (`POST /api/proxy/test`). Auto-check after login.
 
 ## 0.9.2 — 2026-05-21

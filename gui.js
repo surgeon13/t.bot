@@ -16,7 +16,8 @@ const { exec } = require('child_process');
 const express = require('express');
 const log = require('./logger');
 const { launchBrowser, newGameContext, proxyLogLabel } = require('./browserLaunch');
-const { loadConfig, login } = require('./auth');
+const { loadConfig, saveConfig, login } = require('./auth');
+const { readPlayerName, readPublicIp } = require('./accountInfo');
 const {
   getProxyInfo,
   testProxyWithPage,
@@ -86,6 +87,85 @@ let page = null;
 let loggedIn = false;
 /** @type {object|null} Last proxy connectivity check for the GUI */
 let proxyStatusCache = null;
+/** @type {object|null} Player name + public IP for the GUI */
+let accountCache = null;
+
+function accountPayloadForApi() {
+  const cfg = loadConfig();
+  return (
+    accountCache || {
+      loginUsername: cfg.username || '',
+      serverUrl: cfg.url || '',
+      playerName: null,
+      publicIp: null,
+      ipError: null,
+      ipCheckedAt: null,
+    }
+  );
+}
+
+async function refreshAccountInfo(targetPage = page) {
+  const cfg = loadConfig();
+  const base = {
+    loginUsername: cfg.username || '',
+    serverUrl: cfg.url || '',
+    playerName: null,
+    publicIp: null,
+    ipError: null,
+    ipCheckedAt: new Date().toISOString(),
+  };
+
+  if (!loggedIn || !targetPage || targetPage.isClosed()) {
+    accountCache = base;
+    return accountCache;
+  }
+
+  const [playerName, ipResult] = await Promise.all([
+    readPlayerName(targetPage).catch(() => null),
+    readPublicIp(targetPage).catch(err => ({ ip: null, error: err.message })),
+  ]);
+
+  accountCache = {
+    ...base,
+    playerName: playerName || null,
+    publicIp: ipResult.ip || null,
+    ipError: ipResult.error || null,
+    ipSource: ipResult.source || null,
+    ipCheckedAt: new Date().toISOString(),
+  };
+
+  if (accountCache.publicIp) {
+    log.info(TAG, `Public IP (browser): ${accountCache.publicIp}`);
+  }
+  if (accountCache.playerName) {
+    log.info(TAG, `Player name: ${accountCache.playerName}`);
+  }
+
+  return accountCache;
+}
+
+function proxyConfigForApi() {
+  const p = proxySettings(loadConfig());
+  return {
+    enabled: p.enabled,
+    server: p.server,
+    username: p.username,
+    bypass: p.bypass,
+    hasPassword: !!p.password,
+  };
+}
+
+function applyProxyConfigFromBody(cfg, body) {
+  if (!cfg.proxy) cfg.proxy = { enabled: false, server: '', username: '', password: '', bypass: '' };
+  if (typeof body.enabled === 'boolean') cfg.proxy.enabled = body.enabled;
+  if (body.server != null) cfg.proxy.server = String(body.server).trim();
+  if (body.username != null) cfg.proxy.username = String(body.username).trim();
+  if (body.bypass != null) cfg.proxy.bypass = String(body.bypass).trim();
+  if (body.password != null && String(body.password).length > 0) {
+    cfg.proxy.password = String(body.password);
+  }
+  return cfg;
+}
 
 function proxyPayloadForApi() {
   if (proxyStatusCache) return proxyStatusCache;
@@ -145,15 +225,17 @@ async function ensureSession() {
     }
   } else {
     log.info(TAG, 'Logged in');
-    await refreshProxyStatus(page).catch(err => {
-      log.warn(TAG, `Proxy check error: ${err.message}`);
-    });
+    await Promise.all([
+      refreshProxyStatus(page).catch(err => log.warn(TAG, `Proxy check error: ${err.message}`)),
+      refreshAccountInfo(page).catch(err => log.warn(TAG, `Account info error: ${err.message}`)),
+    ]);
   }
 }
 
 async function closeSession() {
   loggedIn = false;
   proxyStatusCache = null;
+  accountCache = null;
   try { if (page && !page.isClosed()) await page.close(); } catch {}
   try { if (context) await context.close(); } catch {}
   try { if (browser) await browser.close(); } catch {}
@@ -212,7 +294,42 @@ app.get('/api/status', async (_req, res) => {
     lastBonus: getLastCompletedBonus(),
     recentBonuses: getLastCompletedBonuses(8),
     proxy: proxyPayloadForApi(),
+    account: accountPayloadForApi(),
+    proxyConfig: proxyConfigForApi(),
   });
+});
+
+app.get('/api/config/proxy', (_req, res) => {
+  res.json({ ok: true, proxy: proxyConfigForApi() });
+});
+
+app.put('/api/config/proxy', async (req, res) => {
+  try {
+    const cfg = applyProxyConfigFromBody(loadConfig(), req.body || {});
+    saveConfig(cfg);
+    proxyStatusCache = null;
+    await closeSession();
+    res.json({
+      ok: true,
+      proxy: proxyConfigForApi(),
+      proxyStatus: proxyStatusWithoutSession(cfg),
+      message: 'Proxy saved to config.json. Session closed — click Re-login to apply.',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+app.post('/api/account/refresh', async (_req, res) => {
+  const result = await lock.run('accountRefresh', async () => {
+    await ensureSession();
+    if (!loggedIn || !page || page.isClosed()) {
+      return { ok: false, account: accountPayloadForApi(), message: 'Not logged in' };
+    }
+    const account = await refreshAccountInfo(page);
+    return { ok: true, account };
+  });
+  res.json(result);
 });
 
 app.get('/api/hero', async (req, res) => {
@@ -523,7 +640,7 @@ app.post('/api/relogin', async (_req, res) => {
     await closeSession();
     await ensureSession();
   });
-  res.json({ ok: loggedIn, proxy: proxyPayloadForApi() });
+  res.json({ ok: loggedIn, proxy: proxyPayloadForApi(), account: accountPayloadForApi() });
 });
 
 app.post('/api/proxy/test', async (_req, res) => {

@@ -19,13 +19,54 @@
     </div>
   </header>
 
-  <div class="proxy-bar" id="proxy-bar">
-    <span class="proxy-bar-label">Proxy</span>
-    <span class="proxy-dot" id="proxy-dot" aria-hidden="true"></span>
-    <span class="proxy-address" id="proxy-address" title="">—</span>
-    <span class="proxy-status-text" id="proxy-status-text">—</span>
-    <button type="button" id="test-proxy" class="ghost" title="Test proxy through the browser">Test proxy</button>
+  <div class="account-bar" id="account-bar">
+    <div class="account-item">
+      <span class="account-lbl">Player</span>
+      <span class="account-val" id="acc-player">—</span>
+    </div>
+    <div class="account-item">
+      <span class="account-lbl">Login</span>
+      <span class="account-val" id="acc-login">—</span>
+    </div>
+    <div class="account-item">
+      <span class="account-lbl">IP</span>
+      <span class="account-val mono" id="acc-ip">—</span>
+    </div>
+    <button type="button" id="refresh-account" class="ghost" title="Refresh player name and IP">Refresh</button>
   </div>
+
+  <section class="proxy-panel" id="proxy-panel">
+    <div class="proxy-bar">
+      <span class="proxy-bar-label">Proxy status</span>
+      <span class="proxy-dot" id="proxy-dot" aria-hidden="true"></span>
+      <span class="proxy-status-text" id="proxy-status-text">—</span>
+      <button type="button" id="test-proxy" class="ghost" title="Test proxy through the browser">Test</button>
+    </div>
+    <form id="proxy-form" class="proxy-form" autocomplete="off">
+      <label class="proxy-check">
+        <input type="checkbox" id="proxy-enabled" name="enabled" />
+        Use proxy
+      </label>
+      <label class="proxy-field">
+        <span>Server</span>
+        <input type="text" id="proxy-server" name="server" placeholder="http://host:8080 or socks5://host:1080" spellcheck="false" />
+      </label>
+      <label class="proxy-field">
+        <span>Username</span>
+        <input type="text" id="proxy-username" name="username" autocomplete="off" />
+      </label>
+      <label class="proxy-field">
+        <span>Password</span>
+        <input type="password" id="proxy-password" name="password" placeholder="Leave blank to keep saved" autocomplete="new-password" />
+      </label>
+      <label class="proxy-field proxy-field-wide">
+        <span>Bypass</span>
+        <input type="text" id="proxy-bypass" name="bypass" placeholder="localhost,127.0.0.1" spellcheck="false" />
+      </label>
+      <button type="submit" class="proxy-save">Save to config</button>
+    </form>
+    <p class="proxy-hint muted" id="proxy-save-hint"></p>
+  </section>
 
   <main>
     <!-- =================== Hero panel =================== -->

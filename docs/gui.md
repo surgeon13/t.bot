@@ -27,9 +27,23 @@ The GUI process:
 
 Shows the configured username and the next scheduled resource bonus line when available.
 
-### Proxy bar (below header)
+### Account bar
 
-Shows whether a proxy is configured in `config.json`, the **server address** in use (with username when set, never the password), and connectivity state:
+| Field | Source |
+|-------|--------|
+| **Player** | In-game name read from the Travian UI after login |
+| **Login** | `config.json` username (account email/name used to log in) |
+| **IP** | Public outbound IP as seen by the browser (through the proxy when enabled) |
+
+**Refresh** calls `POST /api/account/refresh` to re-read name and IP without a full re-login.
+
+### Proxy panel
+
+**Status row** — connectivity test result for the saved proxy settings.
+
+**Form** — edit proxy options and **Save to config** (`PUT /api/config/proxy`). Writes `config.json`, closes the browser session, and prompts you to **Re-login** so Playwright picks up the new proxy. Password is only updated when you type a new one (blank field keeps the saved password).
+
+Shows connectivity state:
 
 | Indicator | Meaning |
 |-----------|---------|
@@ -99,8 +113,11 @@ All `POST` bonus routes clear the bonus poll cache and run under a mutex (queue 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | `{ loggedIn, busy, action }` |
-| `GET` | `/api/status` | Session, totals, last bonus, schedule lines, **proxy** status |
+| `GET` | `/api/status` | Session, totals, **account**, **proxy** status, **proxyConfig** for the form |
+| `GET` | `/api/config/proxy` | Proxy fields for the GUI form (password not returned; `hasPassword` flag) |
+| `PUT` | `/api/config/proxy` | Save proxy to `config.json` and close session |
 | `POST` | `/api/proxy/test` | Re-test proxy through the browser; returns `{ ok, proxy }` |
+| `POST` | `/api/account/refresh` | Re-read player name and public IP |
 | `GET` | `/api/hero?deep=1` | Hero stats object |
 | `GET` | `/api/bonuses/status` | Hero + resource poll; `?force=1` bypasses cache |
 | `GET` | `/api/resources/status` | Resource boxes only |
