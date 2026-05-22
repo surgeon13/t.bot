@@ -722,6 +722,17 @@ const server = app.listen(PORT, HOST, async () => {
   }
 });
 
+server.on('error', err => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n  Port ${PORT} is already in use (another t.bot GUI may be running).`);
+    console.error(`  • Open http://${HOST}:${PORT} in your browser, or`);
+    console.error(`  • Stop the other process, or run:  set PORT=3734 && npm run gui\n`);
+    process.exit(1);
+  }
+  log.error(TAG, err.message);
+  process.exit(1);
+});
+
 async function shutdown() {
   log.info(TAG, 'Shutting down GUI');
   try { server.close(); } catch {}
