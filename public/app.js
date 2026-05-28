@@ -21,6 +21,51 @@ function pct(n) {
   return (n == null || isNaN(n)) ? '—' : `${Math.round(n)}%`;
 }
 
+/** Routes the dashboard expects on GET /api/health `features`. */
+const REQUIRED_GUI_FEATURES = ['farm-list-discover'];
+
+let guiCapabilitiesOk = true;
+
+function setFarmListStaleBanner(show, message) {
+  const banner = $('#farm-list-stale-banner');
+  const discover = $('#farm-list-discover');
+  if (banner) {
+    banner.hidden = !show;
+    if (show && message) banner.textContent = message;
+  }
+  guiCapabilitiesOk = !show;
+  if (discover) discover.disabled = show;
+  updateFarmListSendAllButtonFromForm();
+}
+
+async function checkGuiServerCapabilities() {
+  try {
+    const res = await fetch('/api/health');
+    const data = await parseApiJson(res);
+    const features = Array.isArray(data.features) ? data.features : [];
+    const missing = REQUIRED_GUI_FEATURES.filter(f => !features.includes(f));
+    if (missing.length) {
+      const ver = data.version ? ` (running server reports v${data.version})` : '';
+      setFarmListStaleBanner(
+        true,
+        `Farm lists need a newer GUI process${ver}. In the terminal where t.bot runs, press Ctrl+C, then start again with npm run gui. If port 3733 was already in use, you may still be viewing the old server — stop every t.bot GUI window first.`,
+      );
+      return false;
+    }
+    setFarmListStaleBanner(false);
+    return true;
+  } catch {
+    return guiCapabilitiesOk;
+  }
+}
+
+function staleGuiRestartMessage(serverMessage) {
+  if (serverMessage && /Unknown API/i.test(serverMessage)) {
+    return 'GUI server is out of date. Press Ctrl+C in its terminal, then run npm run gui again (stop any older copy still on port 3733).';
+  }
+  return serverMessage;
+}
+
 /** Parse JSON from API responses; surface HTML/404 pages as a clear error. */
 async function parseApiJson(res) {
   const text = await res.text();
@@ -29,12 +74,42 @@ async function parseApiJson(res) {
     return JSON.parse(text);
   } catch {
     if (/^\s*</.test(text)) {
+      if (/SyntaxError/i.test(text) && /JSON/i.test(text)) {
+        throw new Error(
+          'Server could not read the save request (invalid JSON). Hard-refresh the page (Ctrl+F5) and try Save again.',
+        );
+      }
       throw new Error(
         'Server returned a web page instead of JSON. Stop the GUI (Ctrl+C) and start it again with npm run gui.',
       );
     }
     throw new Error(`Invalid server response (${res.status})`);
   }
+}
+
+function farmListNameFromDataset(el) {
+  const raw = el?.dataset?.name || '';
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function setFarmListDatasetName(el, name) {
+  el.dataset.name = encodeURIComponent(String(name || '').trim());
+}
+
+function farmListJsonBody(payload) {
+  let body;
+  try {
+    body = JSON.stringify(payload);
+    JSON.parse(body);
+  } catch {
+    throw new Error('Could not encode farm list settings for save.');
+  }
+  return body;
 }
 
 /* ----- Status + Hero refresh ----- */
@@ -76,14 +151,7 @@ function paintStatus(s) {
   if (s.farmListStatus) paintFarmListStatus(s.farmListStatus);
   if (s.farmListConfig && !farmListFormDirty) fillFarmListForm(s.farmListConfig);
 
-  if (s.totals) {
-    setText('#t-time', s.totals.heroTimeBonuses);
-    setText('#t-danger', s.totals.heroDangerBonuses);
-    setText('#t-Wood', s.totals.woodBonuses);
-    setText('#t-Clay', s.totals.clayBonuses);
-    setText('#t-Iron', s.totals.ironBonuses);
-    setText('#t-Crop', s.totals.cropBonuses);
-  }
+  if (s.totals) paintLifetimeTotals(s.totals);
 
   if (s.lastBonus) {
     setText('#last-bonus', `Last completed: ${s.lastBonus}`);
@@ -259,15 +327,40 @@ async function loadScheduleForm() {
   }
 }
 
+function paintLifetimeTotals(totals) {
+  if (!totals) return;
+  setText('#t-time', totals.heroTimeBonuses);
+  setText('#t-danger', totals.heroDangerBonuses);
+  setText('#t-Wood', totals.woodBonuses);
+  setText('#t-Clay', totals.clayBonuses);
+  setText('#t-Iron', totals.ironBonuses);
+  setText('#t-Crop', totals.cropBonuses);
+  setText('#t-farm-list', totals.farmListSends ?? 0);
+  paintFarmListSendTotal(totals.farmListSends ?? 0);
+}
+
+function paintFarmListSendTotal(count) {
+  const el = $('#farm-list-send-total');
+  if (!el) return;
+  const n = Number(count) || 0;
+  el.textContent = `${n} send${n === 1 ? '' : 's'}`;
+}
+
 function paintFarmListStatus(st) {
   const dot = $('#farm-list-dot');
   const txt = $('#farm-list-status-text');
   const line = $('#farm-list-next-line');
   if (!dot || !txt) return;
 
+  if (st.farmListSends != null) paintFarmListSendTotal(st.farmListSends);
+
   if (st.enabled && st.schedulerRunning) {
     dot.className = 'farm-list-dot on';
-    txt.textContent = st.listCount ? `Runner ON · ${st.listCount} list(s)` : 'Runner ON — add lists';
+    const n = st.activeCount ?? st.listCount ?? 0;
+    const t = st.totalCount ?? n;
+    txt.textContent = n
+      ? `Runner ON · ${n}/${t} checked`
+      : (t ? 'Runner ON — check lists' : 'Runner ON — load lists');
   } else if (st.enabled) {
     dot.className = 'farm-list-dot warn';
     txt.textContent = 'Runner ON — timer not running';
@@ -287,16 +380,125 @@ function paintFarmListStatus(st) {
   }
 
   updateFarmListRunNowButton(st);
+  updateFarmListSendAllButton(st);
 }
 
 function updateFarmListRunNowButton(st) {
   const btn = $('#farm-list-run-now');
   if (!btn) return;
-  const on = !!st?.enabled && (st.listCount > 0);
+  const active = st?.activeCount ?? st?.listCount ?? 0;
+  const on = !!st?.enabled && active > 0;
   btn.disabled = !on;
   btn.title = on
-    ? 'Trigger the next farm list send as soon as possible'
-    : 'Turn on Runner, add list names, and Save first';
+    ? 'Queue the next full cycle on the runner timer'
+    : 'Turn on Runner, check at least one list, and Save first';
+}
+
+function updateFarmListSendAllButton(st) {
+  const btn = $('#farm-list-send-all');
+  if (!btn) return;
+  const active = st?.activeCount ?? st?.listCount ?? 0;
+  const can = active > 0 && guiCapabilitiesOk;
+  btn.disabled = !can;
+  btn.title = can
+    ? `Send all ${active} checked farm list(s) now (one click)`
+    : !guiCapabilitiesOk
+      ? 'Restart npm run gui and refresh the page'
+      : 'Check at least one list, then Save or Send all';
+}
+
+function updateFarmListSendAllButtonFromForm() {
+  const items = collectFarmListItemsFromDom();
+  updateFarmListSendAllButton({
+    activeCount: items.filter(l => l.enabled).length,
+  });
+}
+
+function normalizeFarmListItem(entry) {
+  if (typeof entry === 'string') {
+    const name = entry.trim();
+    return name ? { name, enabled: true } : null;
+  }
+  if (entry && typeof entry === 'object') {
+    const name = String(entry.name || '').trim();
+    if (!name) return null;
+    return {
+      name,
+      enabled: entry.enabled !== false,
+      village: entry.village || null,
+      canSendOnPage: entry.canSendOnPage,
+    };
+  }
+  return null;
+}
+
+function renderFarmListItems(lists) {
+  const container = $('#farm-list-items');
+  const empty = $('#farm-list-items-empty');
+  if (!container) return;
+
+  const items = [];
+  for (const raw of lists || []) {
+    const e = normalizeFarmListItem(raw);
+    if (e) items.push(e);
+  }
+
+  container.replaceChildren();
+  if (!items.length) {
+    if (empty) empty.hidden = false;
+    updateFarmListRunNowButtonFromForm();
+    updateFarmListSendAllButtonFromForm();
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  const frag = document.createDocumentFragment();
+  for (const item of items) {
+    const label = document.createElement('label');
+    label.className = 'farm-list-item';
+    if (item.canSendOnPage === false) label.classList.add('farm-list-item--no-start');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'farm-list-item-cb';
+    cb.checked = item.enabled;
+    setFarmListDatasetName(cb, item.name);
+    const span = document.createElement('span');
+    span.className = 'farm-list-item-name';
+    let labelText = item.name;
+    if (item.village) labelText += ` · ${item.village}`;
+    if (item.canSendOnPage === false) labelText += ' (Start disabled)';
+    span.textContent = labelText;
+    span.title = labelText;
+    label.append(cb, span);
+    frag.append(label);
+  }
+  container.append(frag);
+  updateFarmListRunNowButtonFromForm();
+  updateFarmListSendAllButtonFromForm();
+}
+
+function collectFarmListItemsFromDom() {
+  return $$('#farm-list-items .farm-list-item-cb').map(cb => ({
+    name: farmListNameFromDataset(cb),
+    enabled: cb.checked,
+  })).filter(x => x.name);
+}
+
+function updateFarmListRunNowButtonFromForm() {
+  const items = collectFarmListItemsFromDom();
+  updateFarmListRunNowButton({
+    enabled: !!$('#farm-list-enabled')?.checked,
+    activeCount: items.filter(l => l.enabled).length,
+    listCount: items.filter(l => l.enabled).length,
+    totalCount: items.length,
+  });
+}
+
+function setAllFarmListChecks(checked) {
+  $$('#farm-list-items .farm-list-item-cb').forEach(cb => { cb.checked = checked; });
+  farmListFormDirty = true;
+  updateFarmListRunNowButtonFromForm();
+  updateFarmListSendAllButtonFromForm();
 }
 
 function fillFarmListForm(cfg) {
@@ -304,26 +506,33 @@ function fillFarmListForm(cfg) {
   const en = $('#farm-list-enabled');
   const min = $('#farm-list-min');
   const max = $('#farm-list-max');
-  const names = $('#farm-list-names');
   if (en) en.checked = !!cfg.enabled;
   if (min) min.value = String(cfg.intervalMinutesMin ?? 5);
   if (max) max.value = String(cfg.intervalMinutesMax ?? 15);
-  if (names) names.value = cfg.listsText || (cfg.lists || []).join('\n');
+  renderFarmListItems(cfg.lists || []);
 }
 
 function collectFarmListForm() {
   return {
     enabled: !!$('#farm-list-enabled')?.checked,
-    listsText: $('#farm-list-names')?.value ?? '',
+    lists: collectFarmListItemsFromDom(),
     intervalMinutesMin: Number($('#farm-list-min')?.value) || 5,
     intervalMinutesMax: Number($('#farm-list-max')?.value) || 15,
   };
 }
 
 async function saveFarmListForm(ev) {
-  ev.preventDefault();
+  ev?.preventDefault();
   const hint = $('#farm-list-save-hint');
-  const btn = $('#farm-list-form')?.querySelector('button[type="submit"]');
+  const btn = $('#farm-list-save');
+  await checkGuiServerCapabilities();
+  if (!guiCapabilitiesOk) {
+    if (hint) {
+      hint.className = 'farm-list-hint fail';
+      hint.textContent = 'GUI was restarted but this tab is stale — refresh the page (Ctrl+F5), or follow the banner above.';
+    }
+    return;
+  }
   if (btn) btn.disabled = true;
   if (hint) {
     hint.className = 'farm-list-hint muted';
@@ -331,13 +540,14 @@ async function saveFarmListForm(ev) {
   }
 
   try {
+    const payload = collectFarmListForm();
     const res = await fetch('/api/config/farm-list', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(collectFarmListForm()),
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: farmListJsonBody(payload),
     });
     const data = await parseApiJson(res);
-    if (!data.ok) throw new Error(data.message || 'Save failed');
+    if (!res.ok || !data.ok) throw new Error(data.message || `Save failed (${res.status})`);
 
     farmListFormDirty = false;
     if (data.farmList) fillFarmListForm(data.farmList);
@@ -383,44 +593,50 @@ async function runFarmListNow() {
     }
     loadFarmListForm();
   } finally {
-    updateFarmListRunNowButton({
-      enabled: !!$('#farm-list-enabled')?.checked,
-      listCount: ($('#farm-list-names')?.value || '').split(/\n/).filter(s => s.trim()).length,
-    });
+    updateFarmListRunNowButtonFromForm();
   }
 }
 
-async function sendFarmListOnce() {
-  const btn = $('#farm-list-send-once');
+async function sendAllFarmListsNow() {
+  const btn = $('#farm-list-send-all');
   const hint = $('#farm-list-save-hint');
+  if (!guiCapabilitiesOk) {
+    await checkGuiServerCapabilities();
+    if (!guiCapabilitiesOk) return;
+  }
   if (btn) btn.disabled = true;
   if (hint) {
     hint.className = 'farm-list-hint muted';
-    hint.textContent = 'Sending next farm list…';
+    hint.textContent = 'Sending all checked farm lists…';
   }
 
   try {
-    const res = await fetch('/api/farm-list/send-once', { method: 'POST' });
+    const res = await fetch('/api/farm-list/send-all', { method: 'POST' });
     const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || 'Send all failed');
+    if (data.totals) paintLifetimeTotals(data.totals);
     if (data.farmListStatus) paintFarmListStatus(data.farmListStatus);
     if (hint) {
-      hint.className = data.ok ? 'farm-list-hint ok' : 'farm-list-hint fail';
-      hint.textContent = data.message || (data.ok ? `Sent "${data.listName}"` : 'Send failed');
+      hint.className = 'farm-list-hint ok';
+      const sent = data.sentLists?.length;
+      hint.textContent = data.message
+        || (sent ? `Sent ${sent} list(s)` : 'All checked farm lists sent');
     }
     fetchStatus();
   } catch (err) {
     if (hint) {
       hint.className = 'farm-list-hint fail';
-      hint.textContent = err.message || 'Network error';
+      hint.textContent = err.message || 'Send all failed';
     }
   } finally {
-    if (btn) btn.disabled = false;
+    updateFarmListSendAllButtonFromForm();
   }
 }
 
 async function discoverFarmLists() {
   const btn = $('#farm-list-discover');
   const hint = $('#farm-list-save-hint');
+  if (!guiCapabilitiesOk) return;
   if (btn) btn.disabled = true;
   if (hint) {
     hint.className = 'farm-list-hint muted';
@@ -430,19 +646,35 @@ async function discoverFarmLists() {
   try {
     const res = await fetch('/api/farm-list/discover');
     const data = await parseApiJson(res);
-    if (!data.ok) throw new Error(data.message || 'Discover failed');
-    const names = data.lists || [];
-    if (names.length && $('#farm-list-names')) {
-      const area = $('#farm-list-names');
-      const existing = area.value.trim();
-      area.value = existing ? `${existing}\n${names.join('\n')}` : names.join('\n');
+    if (!res.ok || !data.ok) {
+      const msg = staleGuiRestartMessage(data.message) || 'Discover failed';
+      if (/Unknown API/i.test(data.message || '')) await checkGuiServerCapabilities();
+      throw new Error(msg);
+    }
+    const lists = data.lists || [];
+    if (lists.length) {
+      const byName = new Map((data.entries || []).map(e => [String(e.name || '').toLowerCase(), e]));
+      const enriched = lists.map(raw => {
+        const base = normalizeFarmListItem(raw);
+        if (!base) return raw;
+        const meta = byName.get(base.name.toLowerCase());
+        if (!meta) return base;
+        return {
+          ...base,
+          village: meta.village || base.village,
+          canSendOnPage: meta.canSend,
+        };
+      });
+      renderFarmListItems(enriched);
       farmListFormDirty = true;
     }
     if (hint) {
       hint.className = 'farm-list-hint ok';
-      hint.textContent = names.length
-        ? `Found ${names.length} name(s) on page — review and Save`
-        : 'No list names detected — enter names manually';
+      const n = data.discoveredCount ?? lists.length;
+      const sendable = data.sendableCount;
+      hint.textContent = lists.length
+        ? `Loaded ${lists.length} list(s)${sendable != null ? `, ${sendable} with Start` : ''} — check which to include and Save`
+        : 'No farm lists found — open rally point → Farm List tab first';
     }
   } catch (err) {
     if (hint) {
@@ -450,7 +682,7 @@ async function discoverFarmLists() {
       hint.textContent = err.message || 'Discover failed';
     }
   } finally {
-    if (btn) btn.disabled = false;
+    if (btn) btn.disabled = !guiCapabilitiesOk;
   }
 }
 
@@ -458,6 +690,7 @@ async function loadFarmListForm() {
   try {
     const res = await fetch('/api/config/farm-list');
     const data = await res.json();
+    if (res.ok) await checkGuiServerCapabilities();
     if (data.farmList && !farmListFormDirty) fillFarmListForm(data.farmList);
     if (data.farmListStatus) paintFarmListStatus(data.farmListStatus);
   } catch {
@@ -851,6 +1084,23 @@ async function refreshAdventures(options = {}) {
   }
 }
 
+function formatAdventureDuration(a) {
+  if (a?.duration && a.duration !== '?') return a.duration;
+  const s = a?.durationSeconds;
+  if (s == null || Number.isNaN(s)) return '—';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+function setAdventureRowSendDisabled(disabled) {
+  $$('#adventures-list [data-adventure-send]').forEach(btn => { btn.disabled = disabled; });
+  const shortest = $('#send-shortest-adventure');
+  if (shortest) shortest.disabled = disabled || shortest.dataset.sendable !== '1';
+}
+
 function paintAdventures(data) {
   const statusEl = $('#adventures-status');
   const listEl = $('#adventures-list');
@@ -863,7 +1113,10 @@ function paintAdventures(data) {
 
   if (!data || !data.ok) {
     if (statusEl) statusEl.textContent = data?.message || 'Adventures unreachable';
-    if (sendBtn) sendBtn.disabled = true;
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      sendBtn.dataset.sendable = '0';
+    }
     return;
   }
 
@@ -873,13 +1126,19 @@ function paintAdventures(data) {
 
   if (heroAway) {
     if (statusEl) statusEl.textContent = 'Hero is on an adventure — list refreshes when they return.';
-    if (sendBtn) sendBtn.disabled = true;
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      sendBtn.dataset.sendable = '0';
+    }
     return;
   }
 
   if (!adventures.length) {
     if (statusEl) statusEl.textContent = 'No adventures available right now.';
-    if (sendBtn) sendBtn.disabled = true;
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      sendBtn.dataset.sendable = '0';
+    }
     return;
   }
 
@@ -888,16 +1147,19 @@ function paintAdventures(data) {
     const pick = adventures.find(a => a.index === shortestIndex);
     if (statusEl) {
       statusEl.textContent = pick
-        ? `${adventures.length} available — shortest: ${pick.place} (${pick.duration})`
+        ? `${adventures.length} available — shortest: ${pick.place} (${formatAdventureDuration(pick)})`
         : `${adventures.length} adventure(s) available`;
     }
   } else if (statusEl) {
     statusEl.textContent = sendable.length
-      ? `${adventures.length} listed — ${sendable.length} sendable (no duration parsed for shortest)`
+      ? `${adventures.length} listed — ${sendable.length} sendable`
       : `${adventures.length} listed — none sendable (hero busy?)`;
   }
 
-  if (sendBtn) sendBtn.disabled = !sendable.length;
+  if (sendBtn) {
+    sendBtn.disabled = !sendable.length;
+    sendBtn.dataset.sendable = sendable.length ? '1' : '0';
+  }
 
   for (const a of adventures) {
     const li = document.createElement('li');
@@ -905,39 +1167,106 @@ function paintAdventures(data) {
     if (a.index === shortestIndex && a.canSend) li.classList.add('shortest');
     if (!a.canSend) li.classList.add('unsendable');
 
+    const top = document.createElement('div');
+    top.className = 'adventure-item-top';
+
     const place = document.createElement('span');
     place.className = 'adventure-place';
     place.textContent = a.place || '?';
     place.title = a.place || '';
 
-    const dist = document.createElement('span');
-    dist.className = 'adventure-meta';
-    dist.textContent = a.distance || '—';
+    top.appendChild(place);
 
-    const dur = document.createElement('span');
-    dur.className = 'adventure-meta';
-    dur.textContent = a.duration || '—';
+    if (a.canSend) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ghost adventure-send-row-btn';
+      btn.textContent = 'Send';
+      btn.dataset.adventureSend = String(a.index);
+      btn.title = `Send hero to ${a.place || 'adventure'} (${formatAdventureDuration(a)})`;
+      top.appendChild(btn);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'adventure-item-meta';
+
+    const timeWrap = document.createElement('span');
+    timeWrap.className = 'adventure-time-wrap';
+    const timeLbl = document.createElement('span');
+    timeLbl.className = 'adventure-time-lbl';
+    timeLbl.textContent = 'Time';
+    const timeVal = document.createElement('span');
+    timeVal.className = 'adventure-time';
+    timeVal.textContent = formatAdventureDuration(a);
+    timeWrap.append(timeLbl, timeVal);
+
+    const distWrap = document.createElement('span');
+    distWrap.className = 'adventure-dist-wrap';
+    const distLbl = document.createElement('span');
+    distLbl.className = 'adventure-meta-lbl';
+    distLbl.textContent = 'Dist';
+    const distVal = document.createElement('span');
+    distVal.className = 'adventure-meta';
+    distVal.textContent = a.distance || '—';
+    distWrap.append(distLbl, distVal);
 
     const diff = document.createElement('span');
     diff.className = `adventure-diff ${a.difficulty === 'Hard' ? 'hard' : 'normal'}`;
     diff.textContent = a.difficulty || 'Normal';
 
-    li.append(place, dist, dur, diff);
+    meta.append(timeWrap, distWrap, diff);
+
     if (a.index === shortestIndex && a.canSend) {
       const tag = document.createElement('span');
       tag.className = 'adventure-tag';
       tag.textContent = 'Shortest';
-      li.appendChild(tag);
-      li.style.gridTemplateColumns = 'minmax(0, 1fr) auto auto auto auto';
+      meta.appendChild(tag);
     }
+
+    li.append(top, meta);
     listEl.appendChild(li);
   }
 }
 
-async function sendShortestAdventure() {
-  const sendBtn = $('#send-shortest-adventure');
+let adventureSendInFlight = false;
+
+async function sendAdventureByIndex(index) {
+  if (adventureSendInFlight) return;
   const statusEl = $('#adventures-status');
-  if (sendBtn) sendBtn.disabled = true;
+  adventureSendInFlight = true;
+  setAdventureRowSendDisabled(true);
+  if (statusEl) statusEl.textContent = 'Sending hero…';
+
+  try {
+    const res = await fetch('/api/adventures/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index }),
+    });
+    const data = await res.json();
+    if (statusEl) {
+      statusEl.textContent = data.message || (data.ok ? 'Hero sent' : 'Send failed');
+      statusEl.className = data.ok ? 'adventures-status muted ok' : 'adventures-status muted fail';
+    }
+    await refreshAdventures({ quiet: true });
+    refreshHero(false);
+  } catch (err) {
+    console.error(err);
+    if (statusEl) {
+      statusEl.textContent = err.message || 'Send failed';
+      statusEl.className = 'adventures-status muted fail';
+    }
+  } finally {
+    adventureSendInFlight = false;
+    setAdventureRowSendDisabled(false);
+  }
+}
+
+async function sendShortestAdventure() {
+  if (adventureSendInFlight) return;
+  const statusEl = $('#adventures-status');
+  adventureSendInFlight = true;
+  setAdventureRowSendDisabled(true);
   if (statusEl) statusEl.textContent = 'Sending hero to shortest adventure…';
 
   try {
@@ -953,7 +1282,8 @@ async function sendShortestAdventure() {
     console.error(err);
     if (statusEl) statusEl.textContent = 'Network error while sending hero';
   } finally {
-    if (sendBtn) sendBtn.disabled = false;
+    adventureSendInFlight = false;
+    setAdventureRowSendDisabled(false);
   }
 }
 
@@ -961,8 +1291,11 @@ function paintHero(h) {
   const q = h && h.quick ? h.quick : {};
   const d = h && h.deep  ? h.deep  : {};
 
-  setText('#hero-name',   d.name || 'Hero');
-  setText('#hero-badge',  d.adventureBadge || q.adventureBadge || '0');
+  const name = d.name || 'Hero';
+  const badge = d.adventureBadge || q.adventureBadge || '0';
+  setText('#hero-name', name);
+  setText('#hero-badge', badge);
+  setText('#hero-toggle-meta', `HP ${pct(d.healthPercent)} · Adv ${badge}`);
 
   // Experience is shown as a raw number (e.g. "1107"), not a percentage,
   // so the XP bar is capped at 100% just for visual feedback.
@@ -1434,6 +1767,15 @@ document.addEventListener('click', ev => {
   if (action === 'refresh-hero')          refreshHero(true);
   if (action === 'refresh-adventures')    refreshAdventures();
   if (action === 'send-shortest-adventure') sendShortestAdventure();
+
+$('#adventures-list')?.addEventListener('click', ev => {
+  const btn = ev.target.closest('[data-adventure-send]');
+  if (!btn || btn.disabled) return;
+  const index = Number(btn.dataset.adventureSend);
+  if (Number.isNaN(index)) return;
+  ev.preventDefault();
+  sendAdventureByIndex(index);
+});
   if (action === 'refresh-bonuses')       refreshAllBonuses({ force: true });
 });
 
@@ -1446,11 +1788,22 @@ $('#proxy-form')?.addEventListener('input', () => { proxyFormDirty = true; });
 $('#schedule-form')?.addEventListener('submit', saveScheduleForm);
 $('#schedule-form')?.addEventListener('input', () => { scheduleFormDirty = true; });
 $('#schedule-run-now')?.addEventListener('click', runSchedulerNow);
-$('#farm-list-form')?.addEventListener('submit', saveFarmListForm);
+$('#farm-list-save')?.addEventListener('click', saveFarmListForm);
+$('#farm-list-form')?.addEventListener('submit', ev => {
+  ev.preventDefault();
+  saveFarmListForm();
+});
 $('#farm-list-form')?.addEventListener('input', () => { farmListFormDirty = true; });
+$('#farm-list-items')?.addEventListener('change', () => {
+  farmListFormDirty = true;
+  updateFarmListRunNowButtonFromForm();
+  updateFarmListSendAllButtonFromForm();
+});
 $('#farm-list-run-now')?.addEventListener('click', runFarmListNow);
-$('#farm-list-send-once')?.addEventListener('click', sendFarmListOnce);
+$('#farm-list-send-all')?.addEventListener('click', sendAllFarmListsNow);
 $('#farm-list-discover')?.addEventListener('click', discoverFarmLists);
+$('#farm-list-check-all')?.addEventListener('click', () => setAllFarmListChecks(true));
+$('#farm-list-check-none')?.addEventListener('click', () => setAllFarmListChecks(false));
 $('#proxy-add-btn')?.addEventListener('click', addProxyFromInput);
 $('#proxy-add-input')?.addEventListener('keydown', ev => {
   if (ev.key === 'Enter') {
@@ -1472,6 +1825,37 @@ $('#proxy-rotation')?.addEventListener('change', () => {
   );
 });
 $('#clear-log').addEventListener('click', () => { logEl.innerHTML = ''; });
+
+function initHeroDropdown() {
+  const root = $('#hero-dropdown');
+  const toggle = $('#hero-dropdown-toggle');
+  const panel = $('#hero-dropdown-panel');
+  if (!root || !toggle || !panel) return;
+
+  const docked = root.classList.contains('hero-dropdown--dock');
+
+  const setOpen = open => {
+    root.classList.toggle('open', open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    panel.hidden = !open;
+  };
+
+  setOpen(docked || root.classList.contains('open'));
+
+  toggle.addEventListener('click', () => {
+    setOpen(!root.classList.contains('open'));
+  });
+
+  panel.addEventListener('click', ev => ev.stopPropagation());
+
+  document.addEventListener('click', ev => {
+    if (!root.contains(ev.target)) setOpen(false);
+  });
+
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') setOpen(false);
+  });
+}
 
 const THEME_STORAGE_KEY = 'tbot-theme';
 
@@ -1506,9 +1890,15 @@ function initTheme() {
 }
 
 initTheme();
+initHeroDropdown();
 loadProxyForm();
 loadScheduleForm();
 loadFarmListForm();
+checkGuiServerCapabilities();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkGuiServerCapabilities();
+});
+setInterval(checkGuiServerCapabilities, 30000);
 
 setAllBonusStatusesPolling();
 fetchStatus();

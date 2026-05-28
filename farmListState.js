@@ -3,6 +3,7 @@
 const fs = require('fs');
 const { FARM_LIST_STATE_FILE: FILE } = require('./paths');
 const { formatNextRunAt } = require('./scheduleState');
+const { farmListSettings } = require('./farmListConfig');
 
 /** @type {boolean} */
 let embeddedFarmSchedulerActive = false;
@@ -52,19 +53,20 @@ function randomNextRunAt(minMinutes, maxMinutes) {
 }
 
 function farmListGuiStatus(cfg, state = readFarmListState()) {
-  const fl = cfg.farmList || {};
-  const enabled = !!fl.enabled;
-  const lists = Array.isArray(fl.lists) ? fl.lists.filter(Boolean) : [];
-  const min = Math.max(1, Number(fl.intervalMinutesMin) || 5);
-  const max = Math.max(min, Number(fl.intervalMinutesMax) || 15);
+  const settings = farmListSettings(cfg);
+  const { enabled, allLists, lists: activeNames, activeCount, totalCount } = settings;
+  const min = settings.intervalMinutesMin;
+  const max = settings.intervalMinutesMax;
 
   let statusLine;
   if (!enabled) {
     statusLine = 'Farm list runner OFF';
-  } else if (!lists.length) {
-    statusLine = 'Enabled — add at least one list name';
+  } else if (!totalCount) {
+    statusLine = 'Enabled — load lists from game';
+  } else if (!activeCount) {
+    statusLine = `Enabled — 0/${totalCount} checked`;
   } else if (!embeddedFarmSchedulerActive) {
-    statusLine = 'Enabled — timer not running (Save or restart GUI)';
+    statusLine = `Enabled — ${activeCount}/${totalCount} checked · timer not running`;
   } else if (!state?.nextRunAt) {
     statusLine = 'Starting…';
   } else {
@@ -81,21 +83,23 @@ function farmListGuiStatus(cfg, state = readFarmListState()) {
     }
   }
 
-  const nextIndex = state?.lastIndex != null && lists.length
-    ? (Number(state.lastIndex) + 1) % lists.length
-    : 0;
+  const nextListName = activeCount > 1
+    ? `all ${activeCount} checked`
+    : (activeNames[0] || null);
 
   return {
     enabled,
-    listCount: lists.length,
-    lists,
+    listCount: activeCount,
+    activeCount,
+    totalCount,
+    lists: allLists,
     intervalMinutesMin: min,
     intervalMinutesMax: max,
     nextRunAt: state?.nextRunAt || null,
     lastRunAt: state?.lastRunAt || null,
     lastListName: state?.lastListName || null,
-    nextListName: lists[nextIndex] || null,
-    nextIndex,
+    nextListName,
+    nextIndex: 0,
     statusLine,
     schedulerRunning: embeddedFarmSchedulerActive,
   };

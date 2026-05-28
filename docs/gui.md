@@ -109,24 +109,9 @@ Inline on the same row as **Player** / **Login** / **IP** (fills the rest of the
 
 Status lines show the next full run (`schedule-state.json`) and next resource batch (`resource-bonus-state.json`) when timers exist.
 
-### Hero
-
-Displays parsed stats from `/hero/attributes` (health, XP, fight strength, off/def bonus, resource bonus %, speed, home village, free attribute points, adventure badge).
-
-- **Refresh hero** — re-reads the page (may navigate away briefly).
-
-### Adventures (under Hero)
-
-Lists available adventures from the Travian adventures page (place, distance, duration, difficulty). The **shortest** sendable row is highlighted.
-
-| Control | Action |
-|---------|--------|
-| **Refresh** | `GET /api/adventures` — re-read the list |
-| **Send shortest** | `POST /api/adventures/send-shortest` — clicks Start on the adventure with the lowest parsed travel time |
-
-The hero is **not** sent automatically by the scheduler or bonus routine; only this button (or future extensions) sends them.
-
 ### Gather bonuses
+
+First panel in the main column (full width).
 
 | Control | Action |
 |---------|--------|
@@ -144,6 +129,22 @@ Resource buttons show status from the last poll:
 
 After a successful claim, the UI shows an optimistic **~8h active** until the next refresh confirms timers.
 
+### Hero (dashboard column)
+
+**Hero** panel in the top row beside **Proxy** and **Lifetime totals** (same height). Click the header bar (hero name + HP / adventure count) to collapse or expand. **↻** refreshes stats from `/hero/attributes`.
+
+### Adventures (in hero dropdown)
+
+Lists available adventures from the Travian adventures page (place, distance, travel time, difficulty). Each row shows **Time** and **Dist**; the **shortest** sendable row is highlighted.
+
+| Control | Action |
+|---------|--------|
+| **Refresh** | `GET /api/adventures` — re-read the list |
+| **Send shortest** | `POST /api/adventures/send-shortest` — sends the adventure with the lowest parsed travel time |
+| **Send** (per row) | `POST /api/adventures/send` with `{ "index": N }` — sends that specific adventure |
+
+The hero is **not** sent automatically by the scheduler or bonus routine; only this button (or future extensions) sends them.
+
 ### Lifetime totals
 
 Shows how many times each **video bonus was successfully watched** by t.bot on this machine (persisted in `data/totals-state.json`). This is not the same as “buff active now” on the bonus buttons — it is a running success counter. **Last completed** is the most recent claim the bot logged.
@@ -154,15 +155,17 @@ Server-sent events stream from `bot.log` (and in-memory buffer). Successful bonu
 
 ### Farm lists
 
-Round-robin farm list sends with a random delay between **min** and **max** minutes. See **[farm-list.md](farm-list.md)** for config keys and API routes.
+Panel in the **proxy column** (directly under the Proxy applet, left of Lifetime totals). Each cycle sends **all checked** lists, then waits a random delay between **min** and **max** minutes. See **[farm-list.md](farm-list.md)** for config keys and API routes.
 
 | Control | Action |
 |---------|--------|
 | **Runner ON** | Enable background timer |
-| **Discover** | Read list names from the farm list page |
+| **Load from game** | Load all farm list names from Travian |
+| **All / None** | Check or uncheck every list |
+| Per-list checkbox | Include list in each send cycle when checked |
 | **Save** | Persist `farmList` in `config.json` |
-| **Run now** | Queue next send |
-| **Send next** | Immediate one-shot send |
+| **Run now** | Send all checked lists as soon as possible |
+| **Send all** | Immediate send of all checked lists |
 
 ### Extensions
 
@@ -204,6 +207,7 @@ All `POST` bonus routes clear the bonus poll cache and run under a mutex (queue 
 | `GET` | `/api/hero?deep=1` | Hero stats object |
 | `GET` | `/api/adventures` | Adventure list + hero-away flag + shortest index |
 | `POST` | `/api/adventures/send-shortest` | Send hero to shortest sendable adventure |
+| `POST` | `/api/adventures/send` | Send hero to adventure by row `index` |
 | `GET` | `/api/bonuses/status` | Bonus poll; `?force=1` bypasses cache; `?scope=` `hero`, `resources`, or `all` (default) |
 | `POST` | `/api/quit` | Graceful shutdown (scheduler + browser + HTTP server) |
 | `GET` | `/api/resources/status` | Resource boxes only |
@@ -216,7 +220,7 @@ All `POST` bonus routes clear the bonus poll cache and run under a mutex (queue 
 | `GET` | `/api/config/farm-list` | Farm list settings + timer status |
 | `PUT` | `/api/config/farm-list` | Save farm list settings |
 | `POST` | `/api/farm-list/run-now` | Queue next farm list send |
-| `POST` | `/api/farm-list/send-once` | Send next list immediately |
+| `POST` | `/api/farm-list/send-all` | Send all checked lists immediately |
 | `GET` | `/api/farm-list/discover` | Read list names from farm list page |
 | `GET` | `/api/log/stream` | SSE log stream |
 

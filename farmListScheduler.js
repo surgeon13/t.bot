@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Farm list round-robin timer (independent from bonus schedule).
+ * Farm list timer — sends all checked lists each cycle (independent from bonus schedule).
  * Waits a random interval between intervalMinutesMin and intervalMinutesMax.
  */
 

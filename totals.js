@@ -7,19 +7,23 @@ const log = require('./logger');
 
 const { TOTALS_STATE_FILE: TOTALS_FILE } = require('./paths');
 
-let totals = {
+const DEFAULT_TOTALS = {
   heroTimeBonuses: 0,
   heroDangerBonuses: 0,
   woodBonuses: 0,
   clayBonuses: 0,
   ironBonuses: 0,
   cropBonuses: 0,
+  farmListSends: 0,
 };
+
+let totals = { ...DEFAULT_TOTALS };
 
 function loadTotals() {
   try {
     if (fs.existsSync(TOTALS_FILE)) {
-      totals = JSON.parse(fs.readFileSync(TOTALS_FILE, 'utf8'));
+      const parsed = JSON.parse(fs.readFileSync(TOTALS_FILE, 'utf8'));
+      totals = { ...DEFAULT_TOTALS, ...parsed };
     }
   } catch (err) {
     log.warn('totals', `Failed to load totals: ${err.message}`);
@@ -55,6 +59,15 @@ function incrementResourceBonus(resource) {
   }
 }
 
+/** @param {string} [listName] */
+function incrementFarmListSend(listName) {
+  totals.farmListSends = (Number(totals.farmListSends) || 0) + 1;
+  saveTotals();
+  const label = listName ? `"${listName}"` : 'farm list';
+  log.info('farmList', `Sent ${label} — lifetime sends: ${totals.farmListSends}`);
+  log.info('totals', `Total farm list sends: ${totals.farmListSends}`);
+}
+
 function getTotals() {
   return { ...totals };
 }
@@ -70,6 +83,7 @@ module.exports = {
   incrementHeroTimeBonus,
   incrementHeroDangerBonus,
   incrementResourceBonus,
+  incrementFarmListSend,
   getTotals,
   logAllTotals,
 };

@@ -261,19 +261,29 @@ async function confirmAdventureDialog(page) {
 }
 
 /**
- * Send the hero to the available adventure with the shortest travel time.
+ * Send the hero on a specific adventure row (by table index).
  *
  * @param {import('playwright').Page} page
+ * @param {number} adventureIndex
  * @returns {Promise<{ok: boolean, status?: string, message: string, adventure?: object}>}
  */
-async function sendHeroOnShortestAdventure(page) {
-  log.info('adventures', 'Send hero to shortest adventure requested');
-  if (!(await openAdventuresPage(page))) {
-    return { ok: false, status: 'unavailable', message: 'Adventures page not reachable' };
+async function sendHeroOnAdventure(page, adventureIndex, options = {}) {
+  const idx = Number(adventureIndex);
+  if (!Number.isInteger(idx) || idx < 0) {
+    return { ok: false, status: 'failed', message: 'Invalid adventure index' };
   }
-  await randomDelay();
 
-  const list = await readAdventureList(page);
+  log.info('adventures', `Send hero to adventure index ${idx}`);
+  let list = options.list;
+  if (!options.skipOpen) {
+    if (!(await openAdventuresPage(page))) {
+      return { ok: false, status: 'unavailable', message: 'Adventures page not reachable' };
+    }
+    await randomDelay();
+    list = await readAdventureList(page);
+  } else if (!list) {
+    list = await readAdventureList(page);
+  }
   if (list.heroAway) {
     return { ok: false, status: 'away', message: 'Hero is already on an adventure' };
   }
@@ -281,15 +291,12 @@ async function sendHeroOnShortestAdventure(page) {
     return { ok: false, status: 'unavailable', message: 'No adventures available' };
   }
 
-  let pick = null;
-  if (list.shortestIndex != null) {
-    pick = list.adventures.find(a => a.index === list.shortestIndex);
-  }
+  const pick = list.adventures.find(a => a.index === idx);
   if (!pick) {
-    pick = list.adventures.find(a => a.canSend);
+    return { ok: false, status: 'failed', message: `Adventure #${idx + 1} not found on page` };
   }
-  if (!pick) {
-    return { ok: false, status: 'unavailable', message: 'No sendable adventures (hero may be busy)' };
+  if (!pick.canSend) {
+    return { ok: false, status: 'unavailable', message: `"${pick.place}" is not sendable right now` };
   }
 
   const rows = await page.$$('table.adventureList tbody tr');
@@ -327,6 +334,41 @@ async function sendHeroOnShortestAdventure(page) {
     message: `Hero sent to ${pick.place} (${pick.duration}, ${pick.difficulty})`,
     adventure: pick,
   };
+}
+
+/**
+ * Send the hero to the available adventure with the shortest travel time.
+ *
+ * @param {import('playwright').Page} page
+ * @returns {Promise<{ok: boolean, status?: string, message: string, adventure?: object}>}
+ */
+async function sendHeroOnShortestAdventure(page) {
+  log.info('adventures', 'Send hero to shortest adventure requested');
+  if (!(await openAdventuresPage(page))) {
+    return { ok: false, status: 'unavailable', message: 'Adventures page not reachable' };
+  }
+  await randomDelay();
+
+  const list = await readAdventureList(page);
+  if (list.heroAway) {
+    return { ok: false, status: 'away', message: 'Hero is already on an adventure' };
+  }
+  if (!list.adventures.length) {
+    return { ok: false, status: 'unavailable', message: 'No adventures available' };
+  }
+
+  let pick = null;
+  if (list.shortestIndex != null) {
+    pick = list.adventures.find(a => a.index === list.shortestIndex);
+  }
+  if (!pick) {
+    pick = list.adventures.find(a => a.canSend);
+  }
+  if (!pick) {
+    return { ok: false, status: 'unavailable', message: 'No sendable adventures (hero may be busy)' };
+  }
+
+  return sendHeroOnAdventure(page, pick.index, { skipOpen: true, list });
 }
 
 async function waitForAdventurePageContent(page, timeout = 30_000) {
@@ -500,6 +542,7 @@ module.exports = {
   openAdventuresPage,
   readAdventurePageStatus,
   readAdventureList,
+  sendHeroOnAdventure,
   sendHeroOnShortestAdventure,
   parseDurationToSeconds,
   claimHeroBonus,

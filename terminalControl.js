@@ -143,6 +143,7 @@ class TerminalControl {
         `  Clay Bonuses: ${totals.clayBonuses}`,
         `  Iron Bonuses: ${totals.ironBonuses}`,
         `  Crop Bonuses: ${totals.cropBonuses}`,
+        `  Farm list sends: ${totals.farmListSends ?? 0}`,
         '',
         'Last 5 Successful Bonuses:',
         ...lastBonuses.map((bonus, i) => `  ${i + 1}. [${bonus.timestamp}] ${bonus.message}`),

@@ -89,6 +89,21 @@ While `npm run schedule` or menu bonus runs are active, type in that terminal:
 | `stop` / `q` / `quit` | Stop after the current browser step |
 | `run` / `now` | (scheduler only) trigger next run immediately |
 
+## Farm lists: “Unknown API: GET /api/farm-list/discover”
+
+**What it means:** The browser tab is talking to an **old GUI process** that was started before farm-list routes existed. The dashboard is up to date, but Node is still running an earlier `gui.js` on port **3733**.
+
+**Fix:**
+
+1. Find the terminal where `npm run gui` is running and press **Ctrl+C**.  
+2. If you see `Port 3733 is already in use` when starting again, another copy is still running — close that terminal or end the `node gui.js` process in Task Manager.  
+3. Start fresh: `npm run gui` (or `npm run gui:dev` while developing).  
+4. Hard-refresh the dashboard (Ctrl+F5).
+
+After restart, `GET /api/health` includes `"features":["farm-list-discover",...]`. The farm list panel shows a red banner if the server is still too old.
+
+**Load from game** needs a logged-in session and the rally point **Farm List** tab in Travian; discovery opens that page in the embedded browser.
+
 ## Getting help with selectors
 
 1. Enable headed mode.  

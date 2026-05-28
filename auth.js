@@ -23,7 +23,10 @@ const DEFAULT_CONFIG = {
   resourceBonuses: { enabled: false, intervalHours: 8 },
   farmList: {
     enabled: false,
-    lists: [],
+    lists: [
+      { name: 'Farm 1', enabled: true },
+      { name: 'Farm 2', enabled: true },
+    ],
     intervalMinutesMin: 5,
     intervalMinutesMax: 15,
   },

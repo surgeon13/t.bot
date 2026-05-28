@@ -32,8 +32,8 @@
   "farmList": {
     "enabled": false,
     "lists": [
-      "Farm 1",
-      "Farm 2"
+      { "name": "Farm 1", "enabled": true },
+      { "name": "Farm 2", "enabled": true }
     ],
     "intervalMinutesMin": 5,
     "intervalMinutesMax": 15

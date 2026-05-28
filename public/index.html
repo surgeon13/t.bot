@@ -134,6 +134,50 @@
           <p class="proxy-pass-hint muted" id="proxy-pass-hint">Proxy password is stored in config.json only when you set one.</p>
           <p class="proxy-hint muted" id="proxy-save-hint">http:// added automatically · Re-login applies next proxy</p>
         </section>
+
+        <section class="farm-list-panel" id="farm-list-panel">
+          <form id="farm-list-form" class="farm-list-form" autocomplete="off">
+            <p class="farm-list-stale-banner" id="farm-list-stale-banner" hidden role="alert"></p>
+            <div class="farm-list-status-row">
+              <span class="proxy-bar-label">Farm lists</span>
+              <span class="farm-list-dot" id="farm-list-dot" aria-hidden="true"></span>
+              <span class="farm-list-status-text" id="farm-list-status-text">—</span>
+              <span class="farm-list-send-total muted" id="farm-list-send-total" title="Lifetime successful farm list starts (data/totals-state.json)">0 sends</span>
+            </div>
+            <p class="farm-list-lead muted">
+              Each cycle sends every checked list, then waits a random time between min and max minutes.
+            </p>
+            <div class="farm-list-fields-row">
+              <label class="proxy-check" title="Run farm list sends on a timer in the background">
+                <input type="checkbox" id="farm-list-enabled" name="enabled" />
+                <span>Runner ON</span>
+              </label>
+              <label class="schedule-interval-lbl">
+                <span>Min</span>
+                <input class="proxy-inp schedule-hours" type="number" id="farm-list-min" name="intervalMinutesMin" min="1" step="1" value="5" title="Minimum minutes until next send" />
+                <span>min</span>
+              </label>
+              <label class="schedule-interval-lbl">
+                <span>Max</span>
+                <input class="proxy-inp schedule-hours" type="number" id="farm-list-max" name="intervalMinutesMax" min="1" step="1" value="15" title="Maximum minutes until next send" />
+                <span>min</span>
+              </label>
+              <button type="button" id="farm-list-save" class="proxy-save proxy-btn-sm">Save</button>
+              <button type="button" id="farm-list-run-now" class="ghost proxy-btn-sm" title="Queue the next full cycle on the runner (Runner must be ON)">Run now</button>
+              <button type="button" id="farm-list-send-all" class="proxy-save proxy-btn-sm farm-list-send-all-btn" title="Send every checked farm list right now">Send all</button>
+            </div>
+            <div class="farm-list-items-head">
+              <span class="farm-list-names-lbl">Lists</span>
+              <button type="button" id="farm-list-discover" class="ghost proxy-btn-sm" title="Open farm list page and load all list names">Load from game</button>
+              <button type="button" id="farm-list-check-all" class="ghost proxy-btn-sm" title="Check all lists (sent each cycle)">All</button>
+              <button type="button" id="farm-list-check-none" class="ghost proxy-btn-sm" title="Uncheck all lists">None</button>
+            </div>
+            <div id="farm-list-items" class="farm-list-items" role="list" aria-label="Farm lists"></div>
+            <p class="farm-list-items-empty muted" id="farm-list-items-empty">Load from game to see your farm lists, then check which to include.</p>
+            <p class="farm-list-line muted" id="farm-list-next-line">—</p>
+            <p class="farm-list-hint muted" id="farm-list-save-hint">Save — uses the green farm list button on the village screen</p>
+          </form>
+        </section>
     </div>
 
     <section class="card totals-card">
@@ -142,7 +186,7 @@
           <div class="card-actions"><span class="muted" id="last-bonus">Last completed: —</span></div>
         </header>
         <p class="totals-lead">
-          Successful video claims on this PC (<code>data/totals-state.json</code>). Counts rise only after a video finishes — not live buff timers.
+          Successful claims on this PC (<code>data/totals-state.json</code>): video bonuses after each video; farm list sends after each list Start succeeds.
         </p>
         <div class="totals-grid">
           <div class="total">
@@ -175,60 +219,66 @@
             <span class="total-label">Crop</span>
             <span class="total-help">+15% crop videos</span>
           </div>
+          <div class="total">
+            <span class="total-value" id="t-farm-list">0</span>
+            <span class="total-label">Farm lists</span>
+            <span class="total-help">Rally list Start clicks</span>
+          </div>
         </div>
       </section>
-  </div>
 
-  <main>
-    <section class="card hero-card">
-        <header class="card-header">
-          <h2>Hero</h2>
-          <div class="card-actions">
-            <button class="ghost" id="refresh-hero" data-action="refresh-hero">Refresh</button>
-          </div>
-        </header>
-        <div class="hero-grid">
-          <div class="hero-portrait">
-            <div class="avatar">🛡️</div>
-            <div>
-              <div class="hero-name" id="hero-name">Hero</div>
-              <div class="hero-level"><span class="tag">Adventures</span> <span id="hero-badge">—</span></div>
-            </div>
-          </div>
-          <div class="hero-bars">
+    <div class="hero-dropdown hero-dropdown--dock open" id="hero-dropdown">
+      <button type="button" class="hero-dropdown-toggle" id="hero-dropdown-toggle" aria-expanded="true" aria-controls="hero-dropdown-panel">
+        <span class="hero-dropdown-avatar" aria-hidden="true">🛡️</span>
+        <span class="hero-dropdown-label">
+          <span class="hero-dropdown-name" id="hero-name">Hero</span>
+          <span class="hero-dropdown-meta" id="hero-toggle-meta">HP — · Adv —</span>
+        </span>
+        <span class="hero-dropdown-chevron" aria-hidden="true"></span>
+      </button>
+      <div class="hero-dropdown-panel" id="hero-dropdown-panel">
+        <div class="hero-dropdown-toolbar">
+          <span class="hero-dropdown-toolbar-title">Hero</span>
+          <button type="button" class="ghost hero-dropdown-btn" data-action="refresh-hero" title="Refresh hero stats">↻</button>
+        </div>
+        <div class="hero-dropdown-body">
+          <div class="hero-bars hero-bars--compact">
             <div class="bar-block">
-              <div class="bar-label"><span>Health</span><span id="hero-health-text">—</span></div>
-              <div class="bar"><div class="bar-fill health" id="hero-health-bar"></div></div>
+              <div class="bar-label"><span>HP</span><span id="hero-health-text">—</span></div>
+              <div class="bar bar--sm"><div class="bar-fill health" id="hero-health-bar"></div></div>
             </div>
             <div class="bar-block">
-              <div class="bar-label"><span>Experience</span><span id="hero-xp-text">—</span></div>
-              <div class="bar"><div class="bar-fill xp" id="hero-xp-bar"></div></div>
+              <div class="bar-label"><span>XP</span><span id="hero-xp-text">—</span></div>
+              <div class="bar bar--sm"><div class="bar-fill xp" id="hero-xp-bar"></div></div>
             </div>
           </div>
-          <div class="hero-stats">
-            <div class="stat"><span class="stat-label">Fight strength</span><span class="stat-value" id="stat-power">—</span></div>
-            <div class="stat"><span class="stat-label">Off bonus</span><span class="stat-value" id="stat-off">—</span></div>
-            <div class="stat"><span class="stat-label">Def bonus</span><span class="stat-value" id="stat-def">—</span></div>
-            <div class="stat"><span class="stat-label">Resource bonus</span><span class="stat-value" id="stat-res">—</span></div>
-            <div class="stat"><span class="stat-label">Free points</span><span class="stat-value" id="stat-free">—</span></div>
-            <div class="stat"><span class="stat-label">Speed</span><span class="stat-value" id="stat-speed">—</span></div>
-            <div class="stat"><span class="stat-label">Experience</span><span class="stat-value" id="stat-xp">—</span></div>
-            <div class="stat"><span class="stat-label">Home village</span><span class="stat-value" id="stat-village">—</span></div>
-          </div>
-          <section class="adventures-panel" aria-labelledby="adventures-heading">
+          <dl class="hero-stats-compact">
+            <div><dt>STR</dt><dd id="stat-power">—</dd></div>
+            <div><dt>Off</dt><dd id="stat-off">—</dd></div>
+            <div><dt>Def</dt><dd id="stat-def">—</dd></div>
+            <div><dt>Res</dt><dd id="stat-res">—</dd></div>
+            <div><dt>Free</dt><dd id="stat-free">—</dd></div>
+            <div><dt>Spd</dt><dd id="stat-speed">—</dd></div>
+            <div><dt>XP</dt><dd id="stat-xp">—</dd></div>
+            <div><dt>Home</dt><dd id="stat-village" class="truncate">—</dd></div>
+          </dl>
+          <section class="adventures-panel adventures-panel--compact" aria-labelledby="adventures-heading">
             <div class="adventures-panel-head">
-              <h3 id="adventures-heading">Adventures</h3>
+              <h3 id="adventures-heading">Adv <span id="hero-badge">—</span></h3>
               <div class="adventures-actions">
-                <button type="button" class="ghost" data-action="refresh-adventures" id="refresh-adventures">Refresh</button>
-                <button type="button" class="ghost adventures-send-btn" data-action="send-shortest-adventure" id="send-shortest-adventure" title="Send hero to the adventure with the shortest travel time">Send shortest</button>
+                <button type="button" class="ghost hero-dropdown-btn" data-action="refresh-adventures" title="Refresh">↻</button>
+                <button type="button" class="ghost hero-dropdown-btn adventures-send-btn" data-action="send-shortest-adventure" id="send-shortest-adventure" title="Send shortest">▶</button>
               </div>
             </div>
             <p class="adventures-status muted" id="adventures-status" aria-live="polite">—</p>
-            <ul class="adventures-list" id="adventures-list"></ul>
+            <ul class="adventures-list adventures-list--compact" id="adventures-list"></ul>
           </section>
         </div>
-      </section>
+      </div>
+    </div>
+  </div>
 
+  <main>
     <section class="card bonus-card">
         <header class="card-header">
           <h2>Gather bonuses</h2>
@@ -282,46 +332,6 @@
           <span class="muted claim-all-hint">Opens shop once, watches every claimable +15% video</span>
           <span class="claim-all-result muted" id="claim-all-result" aria-live="polite"></span>
         </div>
-      </section>
-
-    <section class="card farm-list-card" id="farm-list-panel">
-        <header class="card-header">
-          <h2>Farm lists</h2>
-          <div class="card-actions">
-            <span class="farm-list-dot" id="farm-list-dot" aria-hidden="true"></span>
-            <span class="muted farm-list-status-text" id="farm-list-status-text">—</span>
-          </div>
-        </header>
-        <form id="farm-list-form" class="farm-list-form" autocomplete="off">
-          <p class="farm-list-lead muted">
-            Round-robin: opens rally farm list (gid=16, tt=99), presses Start for each list name in turn.
-            Wait time between sends is random between min and max minutes.
-          </p>
-          <div class="farm-list-fields-row">
-            <label class="proxy-check" title="Run farm list sends on a timer in the background">
-              <input type="checkbox" id="farm-list-enabled" name="enabled" />
-              <span>Runner ON</span>
-            </label>
-            <label class="schedule-interval-lbl">
-              <span>Min</span>
-              <input class="proxy-inp schedule-hours" type="number" id="farm-list-min" name="intervalMinutesMin" min="1" step="1" value="5" title="Minimum minutes until next send" />
-              <span>min</span>
-            </label>
-            <label class="schedule-interval-lbl">
-              <span>Max</span>
-              <input class="proxy-inp schedule-hours" type="number" id="farm-list-max" name="intervalMinutesMax" min="1" step="1" value="15" title="Maximum minutes until next send" />
-              <span>min</span>
-            </label>
-            <button type="button" id="farm-list-discover" class="ghost proxy-btn-sm" title="Read list names visible on the farm list page">Discover</button>
-            <button type="submit" class="proxy-save proxy-btn-sm">Save</button>
-            <button type="button" id="farm-list-run-now" class="ghost proxy-btn-sm" title="Send the next list as soon as possible">Run now</button>
-            <button type="button" id="farm-list-send-once" class="ghost proxy-btn-sm" title="Send one list now (does not require timer)">Send next</button>
-          </div>
-          <label class="farm-list-names-lbl" for="farm-list-names">List names (one per line, must match Travian)</label>
-          <textarea id="farm-list-names" class="farm-list-names" name="listsText" rows="4" placeholder="Farm 1&#10;Farm 2&#10;Farm 3"></textarea>
-          <p class="farm-list-line muted" id="farm-list-next-line">—</p>
-          <p class="farm-list-hint muted" id="farm-list-save-hint">Save — uses the green farm list button on the village screen</p>
-        </form>
       </section>
 
     <section class="card extensions-card" id="extensions">
