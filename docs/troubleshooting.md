@@ -6,7 +6,7 @@
 
 **Checks:**
 
-1. `proxy.server` must include a scheme: `http://`, `https://`, or `socks5://`.  
+1. `proxy.server` can be `host:port` (bot adds `http://`) or an explicit `http://`, `https://`, or `socks5://` URL.  
 2. Test the proxy with a normal browser first.  
 3. Set `proxy.enabled` to `false` to confirm the bot works without it.  
 4. After changing proxy in config, restart `npm run gui` / `npm run schedule` or click **Re-login** in the GUI.  

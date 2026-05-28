@@ -6,7 +6,8 @@
  */
 
 const log = require('./logger');
-const { login } = require('./auth');
+const { login, hasLoggedInShell } = require('./auth');
+const { ensureGameShell } = require('./utils');
 const { launchWithPage } = require('./browserLaunch');
 const { handleAdventures } = require('./adventures');
 const { claimResourceBonuses } = require('./resourceBonuses');
@@ -17,6 +18,10 @@ async function runClaimAllBonuses() {
 
   try {
     if (!(await login(page))) {
+      return 1;
+    }
+    if (!(await hasLoggedInShell(page)) && !(await ensureGameShell(page, { tag: 'bonuses' }))) {
+      log.warn('bonuses', 'Not on game shell after login — skipping run');
       return 1;
     }
     await handleAdventures(page);

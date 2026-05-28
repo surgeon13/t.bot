@@ -2,11 +2,13 @@
 
 const readline = require('readline');
 
+const { version: PKG_VERSION } = require('./package.json');
 const log = require('./logger');
 const { launchWithPage, proxyLogLabel } = require('./browserLaunch');
 const { nextRunMenuLine } = require('./scheduleState');
 const { loadConfig, saveConfig, login } = require('./auth');
 const { handleAdventures, openAdventuresPage, readAdventurePageStatus } = require('./adventures');
+const { normalizeProxyServer, parseProxyServerList } = require('./browserLaunch');
 const { claimResourceBonuses, nextResourceBonusRunLine } = require('./resourceBonuses');
 const { createTerminalControl, isTaskInterrupted } = require('./terminalControl');
 
@@ -33,7 +35,7 @@ async function runWithTerminalCommands(rl, tag, status, task) {
 
 function printBanner() {
   console.log('╔══════════════════════════════╗');
-  console.log('║    t.bot v0.9.2 – Travian    ║');
+  console.log(`║    t.bot v${PKG_VERSION} – Travian    ║`);
   console.log('╚══════════════════════════════╝\n');
 }
 
@@ -80,7 +82,7 @@ async function showSettings(rl) {
   const headIn   = await ask(rl, `  Headless browser [${(cfg.headless !== false) ? 'ON' : 'OFF'}] (on/off): `);
   if (!cfg.proxy) cfg.proxy = { enabled: false, server: '', username: '', password: '', bypass: '' };
   const proxyE   = await ask(rl, `  Proxy            [${cfg.proxy.enabled ? 'ON' : 'OFF'}] (on/off): `);
-  const proxyS   = await ask(rl, `  Proxy server     [${cfg.proxy.server || ''}] (http://host:port or socks5://…): `);
+  const proxyS   = await ask(rl, `  Proxy server     [${cfg.proxy.server || ''}] (host:port or http://…; socks5:// if needed): `);
   const proxyU   = await ask(rl, `  Proxy username   [${cfg.proxy.username || ''}]: `);
   const proxyP   = await ask(rl, `  Proxy password   [${cfg.proxy.password ? '********' : ''}]: `);
   const proxyB   = await ask(rl, `  Proxy bypass     [${cfg.proxy.bypass || ''}] (comma hosts, optional): `);
@@ -103,7 +105,16 @@ async function showSettings(rl) {
   if (headIn.trim().toLowerCase() === 'off') cfg.headless = false;
   if (proxyE.trim().toLowerCase() === 'on')  cfg.proxy.enabled = true;
   if (proxyE.trim().toLowerCase() === 'off') cfg.proxy.enabled = false;
-  if (proxyS.trim()) cfg.proxy.server = proxyS.trim();
+  if (proxyS.trim()) {
+    const list = parseProxyServerList(proxyS, null);
+    if (list.length > 1) {
+      cfg.proxy.servers = list;
+      cfg.proxy.server = list[0];
+    } else {
+      cfg.proxy.server = list[0] || normalizeProxyServer(proxyS);
+      delete cfg.proxy.servers;
+    }
+  }
   if (proxyU.trim()) cfg.proxy.username = proxyU.trim();
   if (proxyP.trim()) cfg.proxy.password = proxyP.trim();
   if (proxyB.trim()) cfg.proxy.bypass = proxyB.trim();

@@ -1,9 +1,6 @@
 node_modules/
 config.json
-bot.log
-schedule-state.json
-resource-bonus-state.json
-totals-state.json
+data/
 debug/
 *.zip
 t.bot-v*.zip

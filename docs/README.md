@@ -1,6 +1,6 @@
 # t.bot documentation
 
-**Version 0.9.1**
+**Version 0.9.3**
 
 This folder contains detailed guides. For a quick start, see the [main README](../README.md).
 
@@ -28,6 +28,7 @@ It does **not** send your hero on adventures, manage troops, or interact with th
 |---------|--------|-------------|
 | `npm start` | `menu.js` | Interactive terminal menu |
 | `npm run gui` | `gui.js` | Web control panel at http://127.0.0.1:3733 |
+| `npm run gui:dev` | `gui.js` + nodemon | GUI with server restart + browser hot reload for `public/` |
 | `npm run bonuses` | `claim-all-bonuses.js` | One shot: login → hero bonuses → due resources → exit |
 | `npm run resources` | `claim-resource-bonuses.js` | One shot: login → force all claimable resource videos → exit |
 | `npm run schedule` | `scheduler.js` | **Loop:** repeat `bonuses` every `schedule.intervalHours` (requires `schedule.enabled`) |
@@ -48,7 +49,7 @@ It does **not** send your hero on adventures, manage troops, or interact with th
 | File | Purpose |
 |------|---------|
 | `config.json` | Your credentials and options (auto-created on first run if missing) |
-| `bot.log` | Append-only run log |
-| `schedule-state.json` | Next scheduler run (menu display) |
-| `resource-bonus-state.json` | Resource bonus due times and per-resource claims |
+| `data/bot.log` | Append-only run log |
+| `data/schedule-state.json` | Next scheduler run (menu display) |
+| `data/resource-bonus-state.json` | Resource bonus due times and per-resource claims |
 | `debug/` | Optional HTML/JSON snapshots when login or video steps fail |

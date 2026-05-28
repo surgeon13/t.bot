@@ -1,10 +1,11 @@
 'use strict';
 
 /**
- * Runs runClaimAllBonuses() in a loop, waiting schedule.intervalHours between runs.
- * Resource bonuses keep a separate due time and can pull the next run earlier.
- * Start with: npm run schedule
- * Enable / change interval in config (or menu [S]) - schedule.enabled and schedule.intervalHours
+ * Runs bonus claims on a timer (schedule.intervalHours).
+ * Resource bonuses can pull the next run earlier via resource-bonus-state.json.
+ *
+ * CLI: npm run schedule
+ * GUI: started automatically when schedule.enabled is true (see gui.js).
  */
 
 const log = require('./logger');
@@ -44,62 +45,90 @@ function nextSchedulerRunAt(h) {
 }
 
 /**
- * Wait for the next run, checking config and terminal commands along the way.
+ * @param {Date} nextAt
+ * @param {{ stop?: boolean, runNow?: boolean, terminal?: object }} control
+ * @returns {Promise<'due'|'run'|'disabled'|'stopped'>}
  */
-async function waitUntilNextRun(nextAt, control) {
+async function waitUntilNextRun(nextAt, control = {}) {
   while (nextAt.getTime() > Date.now()) {
     if (!loadConfig().schedule?.enabled) {
       log.info(TAG, 'schedule.enabled is false - stopping scheduler');
-      process.exit(0);
+      return 'disabled';
+    }
+    if (control.stop) return 'stopped';
+    if (control.runNow) {
+      control.runNow = false;
+      log.info(TAG, 'Starting next run now');
+      return 'run';
     }
 
     const left = nextAt.getTime() - Date.now();
     const step = Math.min(60_000, left);
-    const result = control ? await control.wait(step) : await sleep(step);
-    if (result === 'run') {
-      log.info(TAG, 'Starting next run now');
-      return;
+    if (control.terminal) {
+      const result = await control.terminal.wait(step);
+      if (result === 'run') {
+        log.info(TAG, 'Starting next run now');
+        return 'run';
+      }
+      if (control.stop || control.terminal.stopRequested) return 'stopped';
+    } else {
+      await sleep(step);
     }
   }
+  return 'due';
 }
 
-async function main() {
-  const initial = loadConfig();
-  if (!initial.schedule?.enabled) {
-    log.info(TAG, 'schedule.enabled is false - turn it on in Settings (S), or set schedule.enabled in config.json');
-    log.info(TAG, 'Then run: npm run schedule');
-    process.exit(0);
+/**
+ * @param {object} [options]
+ * @param {() => Promise<number>} [options.executeRun] Defaults to runClaimAllBonuses (own browser).
+ * @param {{ stop?: boolean, runNow?: boolean, terminal?: object }} [options.control]
+ * @param {boolean} [options.attachStdin] Attach terminal commands (CLI only).
+ * @returns {Promise<{ reason: string }>}
+ */
+async function runSchedulerLoop(options = {}) {
+  const executeRun = options.executeRun || runClaimAllBonuses;
+  const control = options.control || {};
+  const attachStdin = options.attachStdin !== false && !options.control?.terminal;
+
+  if (!loadConfig().schedule?.enabled) {
+    return { reason: 'disabled' };
   }
 
   const h0 = intervalHours();
   let phase = 'starting';
   let nextAtForStatus = null;
-  const control = createTerminalControl({
-    tag: TAG,
-    allowRunNow: true,
-    status: () => {
-      if (phase === 'waiting' && nextAtForStatus) {
+  let terminal = control.terminal;
+  let detachControl = () => {};
+
+  if (attachStdin) {
+    terminal = createTerminalControl({
+      tag: TAG,
+      allowRunNow: true,
+      status: () => {
+        if (phase === 'waiting' && nextAtForStatus) {
+          return [
+            'STATUS MODE',
+            '-------------',
+            `Scheduler is ${phase}.`,
+            `Next run at: ${nextAtForStatus?.toLocaleString() ?? 'N/A'}`,
+            `Last completed bonus: ${getLastCompletedBonus()}`,
+            '',
+            'Type stop to exit, run/now to trigger the next run immediately.',
+          ];
+        }
         return [
           'STATUS MODE',
           '-------------',
           `Scheduler is ${phase}.`,
-          `Next run at: ${nextAtForStatus?.toLocaleString() ?? 'N/A'}`,
           `Last completed bonus: ${getLastCompletedBonus()}`,
           '',
           'Type stop to exit, run/now to trigger the next run immediately.',
         ];
-      }
-      return [
-        'STATUS MODE',
-        '-------------',
-        `Scheduler is ${phase}.`,
-        `Last completed bonus: ${getLastCompletedBonus()}`,
-        '',
-        'Type stop to exit, run/now to trigger the next run immediately.',
-      ];
-    },
-  });
-  const detachControl = control.attachStdin();
+      },
+    });
+    control.terminal = terminal;
+    detachControl = terminal.attachStdin();
+  }
 
   try {
     writeScheduleState({
@@ -111,14 +140,15 @@ async function main() {
     for (;;) {
       if (!loadConfig().schedule?.enabled) {
         log.info(TAG, 'schedule disabled - stopping');
-        process.exit(0);
+        return { reason: 'disabled' };
       }
+      if (control.stop) return { reason: 'stopped' };
 
       const h = intervalHours();
       phase = 'running';
       nextAtForStatus = null;
-      await runClaimAllBonuses();
-      if (control.stopRequested) break;
+      await executeRun();
+      if (control.stop || terminal?.stopRequested) return { reason: 'stopped' };
 
       const nextAt = nextSchedulerRunAt(h);
       phase = 'waiting';
@@ -128,18 +158,43 @@ async function main() {
         nextRunAt: nextAt.toISOString(),
         intervalHours: h,
       });
-      await waitUntilNextRun(nextAt, control);
-      if (control.stopRequested) break;
+
+      const waitResult = await waitUntilNextRun(nextAt, control);
+      if (waitResult === 'disabled') return { reason: 'disabled' };
+      if (waitResult === 'stopped') return { reason: 'stopped' };
     }
   } catch (err) {
     if (!isTaskInterrupted(err)) throw err;
-    process.exit(0);
+    return { reason: 'stopped' };
   } finally {
     detachControl();
   }
 }
 
-main().catch(err => {
-  log.error(TAG, err.message);
-  process.exit(1);
-});
+async function main() {
+  const initial = loadConfig();
+  if (!initial.schedule?.enabled) {
+    log.info(TAG, 'schedule.enabled is false - turn it on in Settings (S), or set schedule.enabled in config.json');
+    log.info(TAG, 'Then run: npm run schedule  (or use npm run gui with periodic claims ON)');
+    process.exit(0);
+  }
+
+  const result = await runSchedulerLoop({ attachStdin: true });
+  if (result.reason === 'disabled' || result.reason === 'stopped') {
+    process.exit(0);
+  }
+}
+
+if (require.main === module) {
+  main().catch(err => {
+    log.error(TAG, err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  runSchedulerLoop,
+  intervalHours,
+  nextSchedulerRunAt,
+  waitUntilNextRun,
+};

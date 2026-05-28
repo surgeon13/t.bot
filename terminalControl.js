@@ -4,6 +4,7 @@ const readline = require('readline');
 const log = require('./logger');
 const fs = require('fs');
 const path = require('path');
+const { LOG_FILE } = require('./paths');
 const { getTotals } = require('./totals');
 const { getLastCompletedBonuses } = require('./runState');
 
@@ -121,7 +122,7 @@ class TerminalControl {
     if (!command) return;
 
     if (command === 'clean' || command === 'c') {
-      const logFile = path.join(__dirname, 'bot.log');
+      const logFile = LOG_FILE;
       try {
         fs.writeFileSync(logFile, '');
         console.log(`\n[${this.tag}] Log file cleared.\n`);

@@ -5,7 +5,7 @@ const path = require('path');
 
 const log = require('./logger');
 
-const TOTALS_FILE = path.join(__dirname, 'totals-state.json');
+const { TOTALS_STATE_FILE: TOTALS_FILE } = require('./paths');
 
 let totals = {
   heroTimeBonuses: 0,

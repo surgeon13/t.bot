@@ -5,33 +5,55 @@ const path = require('path');
 
 const log = require('./logger');
 const { loadConfig } = require('./auth');
-const { randomDelay } = require('./utils');
+const {
+  randomDelay,
+  dismissBlockingDialogs,
+  ensureGameShell,
+  openTravianPaymentWizard,
+  SHOP_NAV_SELECTOR,
+  pause,
+} = require('./utils');
 const { waitForVideoToFinish } = require('./videoAds');
 const { isTaskInterrupted } = require('./terminalControl');
 const { setLastCompletedBonus } = require('./runState');
 const { incrementResourceBonus } = require('./totals');
 
 const TAG = 'resources';
-const STATE_FILE = path.join(__dirname, 'resource-bonus-state.json');
+const { RESOURCE_BONUS_STATE_FILE: STATE_FILE } = require('./paths');
 const DEFAULT_INTERVAL_HOURS = 8;
 const RETRY_AFTER_EMPTY_MS = 30 * 60 * 1000;
 const WIZARD_OPEN_TIMEOUT_MS = 10_000;
 
-const SHOP_BUTTON = 'a.shop';
+const SHOP_BUTTON = SHOP_NAV_SELECTOR;
 // Travian rotates the shop dialog class (paymentWizardV2 → paymentShopV5 → …).
 // Match any of the known wrappers; fall back to a generic visible dialog.
-const WIZARD_SELECTOR = [
+const WIZARD_PARTS = [
+  '.dialog.paymentShopV6',
+  '.paymentShopV6',
   '.dialog.paymentShopV5',
   '.paymentShopV5',
+  '.dialog.paymentWizardV3',
+  '.paymentWizardV3',
   '.dialog.paymentWizardV2',
   '.paymentWizardV2',
   '.dialog.paymentWizard',
   '.paymentWizard',
+  '#reactDialogWrapper .dialog[class*="payment"]',
+];
+const WIZARD_SELECTOR = WIZARD_PARTS.join(', ');
+const TAB_SELECTOR = [
+  '.dialog a.tabItem',
+  '.dialog .tabItem',
+  '.paymentShopV6 a.tabItem',
+  '.paymentShopV5 a.tabItem',
+  '.paymentWizardV3 a.tabItem',
+  '.paymentWizardV2 a.tabItem',
+  '[data-tabname]',
 ].join(', ');
-const TAB_SELECTOR = '.dialog a.tabItem, .dialog .tabItem, .paymentShopV5 a.tabItem, .paymentWizardV2 a.tabItem';
-// Visible text of the Advantages tab in the shop wizard. Add localized
-// labels here when supporting more languages.
-const ADVANTAGES_LABEL = /^(advantages|pros|vorteile|avantages|vantaggi|ventajas|преимущества|выгоды)\b/i;
+// Visible text of the Advantages tab in the shop wizard. Add localized labels when needed.
+const ADVANTAGES_LABEL =
+  /^(advantages?|pros|benefits?|vorteile?|avantages?|vantaggi|ventajas|vantagens|voordelen|zalety|korzyści|előnyök|avantajlar|vyhody|преимущества|выгоды)\b/i;
+const BONUS_BOX_SELECTORS = ['.advantagesBonusBox', '.videoFeatureBonusBox'];
 const RESOURCES = ['Wood', 'Clay', 'Iron', 'Crop'];
 
 // Each resource's bonus row on the Advantages tab is wrapped in
@@ -46,7 +68,112 @@ const RESOURCE_BONUS_CLASS = {
   Iron: 'ironProductionBonus',
   Crop: 'cropProductionBonus',
 };
-const BONUS_BOX_SELECTOR = '.advantagesBonusBox';
+const BONUS_BOX_SELECTOR = BONUS_BOX_SELECTORS[0];
+const RESOURCE_POLL_EVAL = ({ wizardParts, boxSelectors, resourceToBonusClass }) => {
+  const isVisible = element => {
+    if (!element) return false;
+    const s = getComputedStyle(element);
+    const b = element.getBoundingClientRect();
+    return s.display !== 'none' && s.visibility !== 'hidden' && b.width > 0 && b.height > 0;
+  };
+
+  const isClickable = element => {
+    if (!isVisible(element)) return false;
+    if (element.disabled || element.getAttribute('aria-disabled') === 'true') return false;
+    if (element.classList.contains('disabled')) return false;
+    const s = getComputedStyle(element);
+    return s.pointerEvents !== 'none' && Number(s.opacity) > 0.05;
+  };
+
+  const findVisibleWizard = () => {
+    for (const sel of wizardParts) {
+      const nodes = document.querySelectorAll(sel);
+      for (const el of nodes) {
+        const b = el.getBoundingClientRect();
+        if (isVisible(el) && b.width > 80 && b.height > 80) return el;
+      }
+    }
+    for (const boxSel of boxSelectors) {
+      const box = document.querySelector(`${boxSel}.lumberProductionBonus, ${boxSel}.cropProductionBonus`);
+      if (!box) continue;
+      const w = box.closest(
+        '.dialog, [class*="paymentShop"], [class*="paymentWizard"], #reactDialogWrapper'
+      );
+      if (w && isVisible(w)) return w;
+    }
+    const wrapper = document.querySelector('#reactDialogWrapper');
+    if (wrapper && isVisible(wrapper)) return wrapper;
+    return document.body;
+  };
+
+  const isProductionBox = el => /ProductionBonus/i.test(el.className || '');
+
+  const findResourceBox = (root, bonusClass) => {
+    for (const boxSel of boxSelectors) {
+      const direct = root.querySelector(`${boxSel}.${bonusClass}`);
+      if (direct && (boxSel !== '.videoFeatureBonusBox' || isProductionBox(direct))) return direct;
+      for (const el of root.querySelectorAll(boxSel)) {
+        if (!el.classList.contains(bonusClass)) continue;
+        if (boxSel === '.videoFeatureBonusBox' && !isProductionBox(el)) continue;
+        return el;
+      }
+    }
+    for (const boxSel of boxSelectors) {
+      const global = document.querySelector(`${boxSel}.${bonusClass}`);
+      if (global && isVisible(global)) return global;
+    }
+    const byClass = document.querySelector(`.${bonusClass}`);
+    if (byClass) {
+      return (
+        byClass.closest(boxSelectors.join(', ')) || byClass
+      );
+    }
+    return null;
+  };
+
+  const findVideoControl = box => {
+    const video = box.querySelector('.bonusVideo, [class*="bonusVideo"]');
+    if (!video) return null;
+
+    const controls = [
+      ...video.querySelectorAll('button'),
+      ...video.querySelectorAll('a'),
+      ...video.querySelectorAll('[role="button"]'),
+    ];
+    for (const el of controls) {
+      if (isClickable(el)) return el;
+    }
+
+    if (video.querySelector('.videoIcon, i[class*="videoIcon"], i[class*="video"]') && isClickable(video)) {
+      return video;
+    }
+    return null;
+  };
+
+  const root = findVisibleWizard();
+  const out = {};
+  for (const [resource, bonusClass] of Object.entries(resourceToBonusClass)) {
+    const box = findResourceBox(root, bonusClass);
+    if (!box) {
+      out[resource] = { status: 'missing', claimable: false, cooldownText: null, bonusActive: false };
+      continue;
+    }
+
+    const bonusActive = box.classList.contains('active');
+    const timerEl = box.querySelector('.bonusDuration .timerReact, .timerReact');
+    const cooldownText = timerEl ? (timerEl.innerText || timerEl.textContent || '').trim() : null;
+    const videoControl = findVideoControl(box);
+    const claimable = !!videoControl;
+
+    let status;
+    if (claimable) status = 'claimable';
+    else if (bonusActive || cooldownText) status = 'active';
+    else status = 'unavailable';
+
+    out[resource] = { status, claimable, cooldownText, bonusActive };
+  }
+  return out;
+};
 
 function readResourceBonusState() {
   try {
@@ -98,44 +225,119 @@ function nextResourceBonusRunLine() {
   return `  Resource bonus : next ${when.toLocaleString()}`;
 }
 
-async function openResourceBonusTab(page, options = {}) {
-  const timeout = options.timeout ?? WIZARD_OPEN_TIMEOUT_MS;
-  log.info(TAG, 'Opening shop wizard');
-  try {
-    await page.locator(SHOP_BUTTON).click({ timeout: 10_000 });
-  } catch (err) {
-    log.warn(TAG, `Shop button not clickable: ${err.message}`);
+async function isShopWizardVisible(page) {
+  return page.evaluate(sel => {
+    const parts = sel.split(',').map(s => s.trim());
+    for (const part of parts) {
+      const el = document.querySelector(part);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      const st = getComputedStyle(el);
+      if (r.width > 40 && r.height > 40 && st.display !== 'none' && st.visibility !== 'hidden') return true;
+    }
     return false;
+  }, WIZARD_SELECTOR).catch(() => false);
+}
+
+async function ensureShopWizardOpen(page, timeout = WIZARD_OPEN_TIMEOUT_MS) {
+  if (await isShopWizardVisible(page)) {
+    log.info(TAG, 'Shop wizard already open');
+    return true;
+  }
+
+  await dismissBlockingDialogs(page, { tag: TAG, maxAttempts: 8 });
+
+  if (await openTravianPaymentWizard(page, { tag: TAG })) {
+    try {
+      await page.waitForSelector(WIZARD_SELECTOR, { state: 'visible', timeout });
+      return true;
+    } catch {
+      log.warn(TAG, 'Payment wizard API called but wizard not visible yet');
+    }
+  }
+
+  await dismissBlockingDialogs(page, { tag: TAG, maxAttempts: 4, allowShopOverlay: true });
+
+  const shop = page.locator(SHOP_BUTTON).first();
+  try {
+    await shop.click({ timeout: 6_000 });
+  } catch (err) {
+    log.warn(TAG, `Shop link click blocked (${err.message}) — using Travian API`);
+    if (!(await openTravianPaymentWizard(page, { tag: TAG }))) {
+      try {
+        await shop.click({ force: true, timeout: 6_000 });
+      } catch (err2) {
+        log.warn(TAG, `Shop button still not reachable: ${err2.message}`);
+        return false;
+      }
+    }
   }
 
   try {
     await page.waitForSelector(WIZARD_SELECTOR, { state: 'visible', timeout });
+    return true;
   } catch {
     log.warn(TAG, `Shop wizard did not open within ${timeout}ms`);
+    return false;
+  }
+}
+
+async function openResourceBonusTab(page, options = {}) {
+  const timeout = options.timeout ?? WIZARD_OPEN_TIMEOUT_MS;
+  log.info(TAG, 'Opening shop wizard');
+
+  if (!(await ensureGameShell(page, { tag: TAG, needShop: true }))) {
+    log.warn(TAG, 'Game shell not ready — shop button unavailable');
+    return false;
+  }
+
+  if (!(await ensureShopWizardOpen(page, timeout))) {
     return false;
   }
   await randomDelay();
 
   log.info(TAG, 'Selecting Advantages tab');
-  const clicked = await page.evaluate(({ tabSel, source }) => {
+  const tabResult = await page.evaluate(({ tabSel, source }) => {
     const re = new RegExp(source, 'i');
-    const tabs = Array.from(document.querySelectorAll(tabSel));
-    const target = tabs.find(t => re.test((t.innerText || t.textContent || '').trim()));
-    if (!target) return false;
+    const isVisible = el => {
+      if (!el) return false;
+      const s = getComputedStyle(el);
+      const b = el.getBoundingClientRect();
+      return s.display !== 'none' && s.visibility !== 'hidden' && b.width > 0 && b.height > 0;
+    };
+
+    const tabs = Array.from(document.querySelectorAll(tabSel)).filter(isVisible);
+    let target = tabs.find(t => re.test((t.innerText || t.textContent || '').trim()));
+    if (!target) {
+      target = document.querySelector(
+        '[data-tabname="advantages"], [data-tabname="Advantages"], [data-tabname="pros"], [data-tabname="benefits"]'
+      );
+    }
+    if (!target) {
+      target = tabs.find(t => /advant|vorteil|vantag|benefit|bonus|vyhod|korzy/i.test((t.innerText || t.textContent || '').trim()));
+    }
+    if (!target) return { ok: false };
     target.click();
-    return true;
+    return { ok: true };
   }, { tabSel: TAB_SELECTOR, source: ADVANTAGES_LABEL.source });
 
-  if (!clicked) {
+  if (!tabResult?.ok) {
     log.warn(TAG, 'Could not locate the Advantages tab inside the shop wizard');
     return false;
   }
+
+  await page.waitForFunction(
+    ({ boxSelectors }) => boxSelectors.some(sel => document.querySelector(`${sel}.lumberProductionBonus`)),
+    { boxSelectors: BONUS_BOX_SELECTORS },
+    { timeout: 8_000 }
+  ).catch(() => {});
 
   await page.waitForFunction(({ tabSel, source }) => {
     const re = new RegExp(source, 'i');
     const tabs = Array.from(document.querySelectorAll(tabSel));
     return tabs.some(t => /\bactive\b/.test(t.className) && re.test((t.innerText || t.textContent || '').trim()));
   }, { tabSel: TAB_SELECTOR, source: ADVANTAGES_LABEL.source }, { timeout: 5_000 }).catch(() => {});
+
   await randomDelay();
   return true;
 }
@@ -160,41 +362,20 @@ function cooldownTextToSeconds(text) {
  *   }
  */
 async function pollResourceBonuses(page) {
-  const raw = await page.evaluate(({ wizardSel, boxSel, resourceToBonusClass }) => {
-    const root = document.querySelector(wizardSel) || document.body;
-    const isVisible = element => {
-      const s = getComputedStyle(element);
-      const b = element.getBoundingClientRect();
-      return s.display !== 'none' && s.visibility !== 'hidden' && b.width > 0 && b.height > 0;
-    };
-
-    const out = {};
-    for (const [resource, bonusClass] of Object.entries(resourceToBonusClass)) {
-      const box = root.querySelector(`${boxSel}.${bonusClass}`);
-      if (!box) {
-        out[resource] = { status: 'missing', claimable: false, cooldownText: null, bonusActive: false };
-        continue;
-      }
-
-      const bonusActive = box.classList.contains('active');
-      const timerEl = box.querySelector('.bonusDuration .timerReact, .timerReact');
-      const cooldownText = timerEl ? (timerEl.innerText || timerEl.textContent || '').trim() : null;
-      const videoButton = box.querySelector('.bonusVideo button');
-      const claimable = !!(videoButton && !videoButton.disabled && isVisible(videoButton));
-
-      let status;
-      if (claimable)               status = 'claimable';
-      else if (bonusActive || cooldownText) status = 'active';
-      else                         status = 'unavailable';
-
-      out[resource] = { status, claimable, cooldownText, bonusActive };
-    }
-    return out;
-  }, { wizardSel: WIZARD_SELECTOR, boxSel: BONUS_BOX_SELECTOR, resourceToBonusClass: RESOURCE_BONUS_CLASS });
+  const raw = await page.evaluate(RESOURCE_POLL_EVAL, {
+    wizardParts: WIZARD_PARTS,
+    boxSelectors: BONUS_BOX_SELECTORS,
+    resourceToBonusClass: RESOURCE_BONUS_CLASS,
+  });
 
   for (const r of Object.keys(raw)) {
     raw[r].cooldownSeconds = cooldownTextToSeconds(raw[r].cooldownText);
   }
+
+  const claimable = Object.entries(raw).filter(([, v]) => v.claimable).map(([k]) => k);
+  const summary = Object.entries(raw).map(([k, v]) => `${k}:${v.status}`).join(', ');
+  log.info(TAG, `Resource poll — ${summary}${claimable.length ? ` (claimable: ${claimable.join(', ')})` : ''}`);
+
   return raw;
 }
 
@@ -215,28 +396,102 @@ async function findResourceVideoButton(page, resource) {
   const bonusClass = RESOURCE_BONUS_CLASS[resource];
   if (!bonusClass) return null;
 
-  const handle = await page.evaluateHandle(({ wizardSel, boxSel, bonusClass }) => {
-    const root = document.querySelector(wizardSel) || document.body;
-    const isVisible = element => {
-      const s = getComputedStyle(element);
-      const b = element.getBoundingClientRect();
-      return s.display !== 'none' && s.visibility !== 'hidden' && b.width > 0 && b.height > 0;
-    };
+  const handle = await page.evaluateHandle(
+    ({ wizardParts, boxSelectors, resourceToBonusClass, targetResource }) => {
+      const isVisible = element => {
+        if (!element) return false;
+        const s = getComputedStyle(element);
+        const b = element.getBoundingClientRect();
+        return s.display !== 'none' && s.visibility !== 'hidden' && b.width > 0 && b.height > 0;
+      };
+      const isClickable = element => {
+        if (!isVisible(element)) return false;
+        if (element.disabled || element.getAttribute('aria-disabled') === 'true') return false;
+        if (element.classList.contains('disabled')) return false;
+        const s = getComputedStyle(element);
+        return s.pointerEvents !== 'none' && Number(s.opacity) > 0.05;
+      };
 
-    const box = root.querySelector(`${boxSel}.${bonusClass}`);
-    if (!box) return null;
-    const videoButton = box.querySelector('.bonusVideo button');
-    if (!videoButton || videoButton.disabled || !isVisible(videoButton)) return null;
-    return videoButton;
-  }, { wizardSel: WIZARD_SELECTOR, boxSel: BONUS_BOX_SELECTOR, bonusClass });
+      const findVisibleWizard = () => {
+        for (const sel of wizardParts) {
+          for (const el of document.querySelectorAll(sel)) {
+            const b = el.getBoundingClientRect();
+            if (isVisible(el) && b.width > 80 && b.height > 80) return el;
+          }
+        }
+        for (const boxSel of boxSelectors) {
+          const box = document.querySelector(`${boxSel}.lumberProductionBonus`);
+          if (!box) continue;
+          const w = box.closest('.dialog, [class*="paymentShop"], [class*="paymentWizard"], #reactDialogWrapper');
+          if (w && isVisible(w)) return w;
+        }
+        return document.body;
+      };
+
+      const bonusCls = resourceToBonusClass[targetResource];
+      const root = findVisibleWizard();
+      let box = null;
+      for (const boxSel of boxSelectors) {
+        box = root.querySelector(`${boxSel}.${bonusCls}`);
+        if (box) break;
+        for (const el of root.querySelectorAll(boxSel)) {
+          if (el.classList.contains(bonusCls)) {
+            box = el;
+            break;
+          }
+        }
+        if (box) break;
+      }
+      if (!box) {
+        const global = document.querySelector(`${boxSelectors[0]}.${bonusCls}`);
+        if (global && isVisible(global)) box = global;
+      }
+      if (!box) return null;
+
+      const video = box.querySelector('.bonusVideo, [class*="bonusVideo"]');
+      if (!video) return null;
+      const controls = [
+        ...video.querySelectorAll('button'),
+        ...video.querySelectorAll('a'),
+        ...video.querySelectorAll('[role="button"]'),
+      ];
+      for (const el of controls) {
+        if (isClickable(el)) return el;
+      }
+      if (video.querySelector('.videoIcon, i[class*="videoIcon"]') && isClickable(video)) return video;
+      return null;
+    },
+    {
+      wizardParts: WIZARD_PARTS,
+      boxSelectors: BONUS_BOX_SELECTORS,
+      resourceToBonusClass: RESOURCE_BONUS_CLASS,
+      targetResource: resource,
+    }
+  );
 
   const button = handle.asElement();
   if (!button) await handle.dispose();
   return button;
 }
 
+async function clickResourceVideoButton(page, button, resource) {
+  try {
+    await button.scrollIntoViewIfNeeded().catch(() => {});
+    await button.click({ force: true, timeout: 10_000 });
+  } catch (err) {
+    log.warn(TAG, `${resource} video button click failed: ${err.message}`);
+    return false;
+  } finally {
+    await button.dispose().catch(() => {});
+  }
+  await pause(700);
+  return true;
+}
+
 async function closeResourceBonusTab(page) {
+  const { dismissBlockingDialogs } = require('./utils');
   await page.keyboard.press('Escape').catch(() => {});
+  await dismissBlockingDialogs(page, { tag: 'resources' });
 }
 
 function markResourceBonusRun(claimedCount, intervalHours, extras = {}) {
@@ -292,6 +547,10 @@ async function claimResourceBonuses(page, options = {}) {
     }
 
     available = await listAvailableResourceVideos(page);
+    if (available.length === 0) {
+      await pause(1200);
+      available = await listAvailableResourceVideos(page);
+    }
     log.info(TAG, `Available resource videos: ${available.length ? available.join(', ') : 'none'}`);
 
     for (let i = 0; i < available.length; i++) {
@@ -321,12 +580,10 @@ async function claimResourceBonuses(page, options = {}) {
       }
 
       log.info(TAG, `Claiming ${resource} video bonus`);
-      try {
-        await button.click({ timeout: 10_000 });
-      } finally {
-        await button.dispose().catch(() => {});
+      if (!(await clickResourceVideoButton(page, button, resource))) {
+        failed.push(resource);
+        continue;
       }
-      await randomDelay();
       const videoFinished = await waitForVideoToFinish(page);
       if (videoFinished) {
         log.info(TAG, `${resource} bonus video watched successfully`);
@@ -403,12 +660,9 @@ async function claimResourceBonus(page, resource) {
     }
 
     log.info(TAG, `Claiming ${resource} video bonus`);
-    try {
-      await button.click({ timeout: 10_000 });
-    } finally {
-      await button.dispose().catch(() => {});
+    if (!(await clickResourceVideoButton(page, button, resource))) {
+      return { ok: false, status: 'failed', message: `${resource} video button could not be clicked` };
     }
-    await randomDelay();
 
     const videoFinished = await waitForVideoToFinish(page);
     if (!videoFinished) {
@@ -450,6 +704,7 @@ async function pollResourceBonusesViaWizard(page) {
 module.exports = {
   claimResourceBonuses,
   claimResourceBonus,
+  cooldownTextToSeconds,
   pollResourceBonusesViaWizard,
   isResourceBonusDue,
   nextResourceBonusRunLine,

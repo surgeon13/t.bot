@@ -14,7 +14,7 @@ Runs `scheduler.js`, which loops forever (until you stop it or disable schedulin
 
 1. **`schedule.enabled`** must be `true` in `config.json` (or turn **Periodic claims** ON in menu **S**).
 2. Valid **`url`**, **`username`**, and **`password`** in `config.json`.
-3. Run in a **dedicated terminal** — the scheduler does not start automatically with `npm start` or `npm run gui`.
+3. **GUI:** with `npm run gui`, turn **Periodic all bonuses** ON and **Save** — the scheduler runs inside the GUI (no second terminal). **CLI/menu:** run `npm run schedule` in a dedicated terminal. Set `GUI_NO_SCHEDULER=1` to use only the separate terminal with the GUI.
 
 If `schedule.enabled` is `false`, the process prints a hint and exits immediately.
 
@@ -38,7 +38,7 @@ Then the browser closes. The scheduler waits until the next run time, then repea
 
 **Earlier wake-up:** If `resourceBonuses.enabled` is `true` and `resource-bonus-state.json` has a `nextRunAt` **sooner** than the normal schedule interval, the scheduler sleeps until that resource due time instead (so resource videos are not missed).
 
-After each run, **`schedule-state.json`** is updated with `lastRunAt`, `nextRunAt`, and `intervalHours`. The menu (`npm start`) reads this file to show **Next run**.
+After each run, **`data/schedule-state.json`** is updated with `lastRunAt`, `nextRunAt`, and `intervalHours`. The menu (`npm start`) reads this file to show **Next run**.
 
 ## Typical setup (two terminals)
 
@@ -100,9 +100,9 @@ Change settings in menu **(S)** or edit `config.json`, then **restart** `npm run
 
 ## Logs and state
 
-- **`bot.log`** — scheduler lines tagged `[schedule]`  
-- **`schedule-state.json`** — next/last run for the menu (gitignored locally)  
-- **`resource-bonus-state.json`** — resource due times when resource bonuses are enabled  
+- **`data/bot.log`** — scheduler lines tagged `[schedule]`  
+- **`data/schedule-state.json`** — next/last run for the menu (gitignored locally)  
+- **`data/resource-bonus-state.json`** — resource due times when resource bonuses are enabled  
 
 ## Troubleshooting
 

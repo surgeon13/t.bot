@@ -4,14 +4,14 @@
  * Build a clean deployment zip (no secrets, no local state, no node_modules).
  *
  * Usage: npm run export
- * Output: t.bot-v<version>.zip in the project root
+ * Output: t.bot-v<version>.zip in the project root (extracts to t.bot/ folder)
  */
 
 const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
+const { ROOT, PACKAGE_FOLDER_NAME } = require('../paths');
 
-const ROOT = path.join(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const VERSION = pkg.version || '0.0.0';
 const OUT_NAME = `t.bot-v${VERSION}.zip`;
@@ -22,17 +22,14 @@ const EXCLUDE_DIRS = new Set([
   'node_modules',
   '.git',
   'debug',
+  'data',
   'agent-transcripts',
   '.cursor',
-  'scripts', // only export-zip lives here; omit tooling folder from deploy zip
+  'scripts',
 ]);
 
 const EXCLUDE_FILES = new Set([
   'config.json',
-  'bot.log',
-  'schedule-state.json',
-  'resource-bonus-state.json',
-  'totals-state.json',
   OUT_NAME,
 ]);
 
@@ -74,7 +71,7 @@ async function main() {
   });
 
   archive.pipe(output);
-  const folderName = `t.bot-v${VERSION}`;
+  const folderName = PACKAGE_FOLDER_NAME;
   for (const { abs, rel } of files) {
     archive.file(abs, { name: `${folderName}/${rel}` });
   }
@@ -83,12 +80,14 @@ async function main() {
 
   const sizeMb = (archive.pointer() / (1024 * 1024)).toFixed(2);
   console.log(`Created ${OUT_NAME} (${sizeMb} MB, ${files.length} files)`);
+  console.log(`Unzip → folder: ${folderName}/`);
   console.log('');
   console.log('On the new machine:');
-  console.log('  1. Unzip the archive');
-  console.log('  2. npm install');
-  console.log('  3. Edit config.json (created automatically on first run if missing)');
-  console.log('  4. npm run gui   (or npm start / npm run bonuses)');
+  console.log(`  1. Unzip (you should see ${folderName}/)`);
+  console.log(`  2. cd ${folderName}`);
+  console.log('  3. npm install');
+  console.log('  4. Edit config.json (created automatically on first run if missing)');
+  console.log('  5. npm run gui   (or npm start / npm run bonuses)');
 }
 
 main().catch(err => {

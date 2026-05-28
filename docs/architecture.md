@@ -1,6 +1,6 @@
 # Architecture
 
-High-level map of **t.bot v0.9.1** (Node.js, CommonJS, Playwright).
+High-level map of **t.bot v0.9.3** (Node.js, CommonJS, Playwright).
 
 ```mermaid
 flowchart LR
@@ -99,7 +99,8 @@ The GUI keeps one `browser` + `context` + `page` and serializes actions with `Ac
 
 - REST + SSE (`logger.subscribe`)  
 - `withSession(name, fn)` wraps all Playwright work  
-- Bonus poll cache (~30s) for `/api/bonuses/status`  
+- Bonus poll cache (~30s) for `GET /api/bonuses/status` when `scope=all`
+- `POST /api/quit` → shared `shutdown()` (scheduler, browser, server)  
 
 **`heroStats.js`** — parses `#heroV2` on attributes page.
 
@@ -107,7 +108,8 @@ The GUI keeps one `browser` + `context` + `page` and serializes actions with `Ac
 
 | Module | Role |
 |--------|------|
-| `logger.js` | Console + `bot.log` + SSE subscribers |
+| `paths.js` | `ROOT`, `data/`, `debug/`, config paths; migrates legacy root state files |
+| `logger.js` | Console + `data/bot.log` + SSE subscribers |
 | `utils.js` | `randomDelay()` from config |
 | `terminalControl.js` | `status` / `stop` / `run` during tasks |
 | `scheduleState.js` | `schedule-state.json` read/write |

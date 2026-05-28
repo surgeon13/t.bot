@@ -1,6 +1,7 @@
 'use strict';
 
 const { proxySettings, proxyLogLabel } = require('./browserLaunch');
+const { networkErrorHint } = require('./auth');
 
 const LOGGED_IN_HINT = 'a.layoutButton.adventure, input[name="name"], input[name="password"]';
 
@@ -13,9 +14,12 @@ function getProxyInfo(cfg) {
   const missingServer = p.enabled && !p.server;
   const configured = p.enabled && !!p.server;
 
+  const pool = p.serverCount > 1 ? ` [${(p.serverIndex ?? 0) + 1}/${p.serverCount}]` : '';
+
   let display = 'Off';
   if (configured) {
-    display = p.username ? `${p.server} (${p.username})` : p.server;
+    const base = p.username ? `${p.server} (${p.username})` : p.server;
+    display = `${base}${pool}`;
   } else if (missingServer) {
     display = 'Enabled — server not set';
   }
@@ -25,6 +29,10 @@ function getProxyInfo(cfg) {
     configured,
     missingServer,
     server: p.server || '',
+    servers: p.servers || [],
+    serverCount: p.serverCount || 0,
+    serverIndex: p.serverIndex ?? 0,
+    rotation: p.rotation || 'round-robin',
     username: p.username || '',
     hasAuth: !!(p.username || p.password),
     bypass: p.bypass || '',
@@ -100,7 +108,7 @@ async function testProxyWithPage(page, cfg) {
       ...info,
       state: 'fail',
       working: false,
-      message: err.message || 'Connection failed',
+      message: networkErrorHint(err),
       latencyMs: Date.now() - t0,
       checkedAt: new Date().toISOString(),
     };

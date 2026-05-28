@@ -5,9 +5,11 @@ const path = require('path');
 const log  = require('./logger');
 const { randomDelay } = require('./utils');
 
-const CONFIG_PATH = path.join(__dirname, 'config.json');
-const CONFIG_EXAMPLE_PATH = path.join(__dirname, 'config.example.json');
-const DEBUG_DIR   = path.join(__dirname, 'debug');
+const {
+  CONFIG_PATH,
+  CONFIG_EXAMPLE_PATH,
+  DEBUG_DIR,
+} = require('./paths');
 
 const DEFAULT_CONFIG = {
   url: 'https://YOUR_SERVER.travian.com/',
@@ -19,7 +21,7 @@ const DEFAULT_CONFIG = {
   browserChannel: true,
   schedule: { enabled: false, intervalHours: 3 },
   resourceBonuses: { enabled: false, intervalHours: 8 },
-  proxy: { enabled: false, server: '', username: '', password: '', bypass: '' },
+  proxy: { enabled: false, server: '', servers: [], rotation: 'round-robin', username: '', password: '', bypass: '' },
 };
 const LOGIN_FORM_SELECTOR = 'input[name="name"], input[name="password"]';
 const LOGIN_SUBMIT_SELECTOR = 'button.textButtonV2[type="submit"], button[type="submit"]';
@@ -145,10 +147,35 @@ async function describePage(page) {
   return { url, title, hasUser, hasPass, hasLoggedIn };
 }
 
+/** Short user-facing hint for Playwright navigation / proxy errors. */
+function networkErrorHint(err) {
+  const msg = String(err?.message || err || 'Unknown error');
+  if (/ERR_TUNNEL_CONNECTION_FAILED/i.test(msg)) {
+    return 'Proxy tunnel failed — check proxy host, port, and credentials, or try another proxy in the pool (Re-login rotates round-robin).';
+  }
+  if (/ERR_PROXY_CONNECTION_FAILED/i.test(msg)) {
+    return 'Proxy connection failed — proxy unreachable or misconfigured.';
+  }
+  if (/ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|ERR_CONNECTION_TIMED_OUT/i.test(msg)) {
+    return 'Connection failed — server or proxy refused the connection.';
+  }
+  if (/ERR_NAME_NOT_RESOLVED/i.test(msg)) {
+    return 'DNS failed — check the Travian URL and proxy settings.';
+  }
+  return msg.split('\n')[0].slice(0, 200);
+}
+
 async function login(page) {
   const cfg = loadConfig();
   log.info('auth', `Navigating to ${cfg.url}`);
-  await page.goto(cfg.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  try {
+    await page.goto(cfg.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  } catch (err) {
+    const hint = networkErrorHint(err);
+    log.error('auth', `Navigation failed: ${hint}`);
+    login.lastError = hint;
+    return false;
+  }
   await waitForLoginPageReady(page);
   await randomDelay();
 
@@ -200,8 +227,21 @@ async function login(page) {
     const after = await describePage(page);
     log.warn('auth', `Login did not land on game shell. Now at ${after.url} ("${after.title}")`);
     await dumpLoginDebug(page, 'no-shell');
+    login.lastError = 'Login form submitted but game shell did not load';
+  } else {
+    login.lastError = null;
   }
   return ok;
 }
 
-module.exports = { loadConfig, saveConfig, login, ensureConfigFile, CONFIG_PATH };
+module.exports = {
+  loadConfig,
+  saveConfig,
+  login,
+  networkErrorHint,
+  ensureConfigFile,
+  CONFIG_PATH,
+  hasLoggedInShell,
+  isLoggedInUrl,
+  LOGGED_IN_SELECTOR,
+};

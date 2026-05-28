@@ -3,7 +3,7 @@
 const fs   = require('fs');
 const path = require('path');
 
-const LOG_FILE = path.join(__dirname, 'bot.log');
+const { LOG_FILE } = require('./paths');
 
 function timestamp() {
   return new Date().toISOString().replace('T', ' ').replace('Z', '');

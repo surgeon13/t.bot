@@ -12,6 +12,11 @@
   "proxy": {
     "enabled": false,
     "server": "http://127.0.0.1:8080",
+    "servers": [
+      "http://127.0.0.1:8080",
+      "http://backup-proxy.example.com:8080"
+    ],
+    "rotation": "round-robin",
     "username": "",
     "password": "",
     "bypass": "localhost,127.0.0.1"

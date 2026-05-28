@@ -1,0 +1,23 @@
+{
+  "watch": ["."],
+  "ext": "js",
+  "ignore": [
+    "node_modules/**",
+    "public/**",
+    "debug/**",
+    "data/**",
+    "docs/**",
+    "scripts/**",
+    "**/*.json",
+    "package-lock.json",
+    "config.json",
+    "t.bot-v*.zip"
+  ],
+  "exec": "node gui.js",
+  "delay": 1000,
+  "signal": "SIGTERM",
+  "env": {
+    "DEV_RELOAD": "1",
+    "OPEN_BROWSER": "0"
+  }
+}

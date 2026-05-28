@@ -4,6 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>t.bot — Travian Assistant</title>
+  <script>
+    (function () {
+      var KEY = 'tbot-theme';
+      var pref = localStorage.getItem(KEY) || 'dark';
+      var resolved = pref === 'light' ? 'light'
+        : pref === 'ocean' ? 'ocean'
+        : pref === 'peach' ? 'peach'
+        : pref === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light'
+        : pref === 'system' ? 'dark'
+        : 'dark';
+      document.documentElement.setAttribute('data-theme', resolved);
+      document.documentElement.dataset.themePref = pref;
+    })();
+  </script>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -12,230 +26,290 @@
       <span class="logo">t.bot</span>
       <span class="subtitle">Travian Assistant</span>
     </div>
-    <div class="session" id="session-strip">
-      <span class="dot" id="session-dot"></span>
-      <span id="session-text">Connecting…</span>
-      <button id="relogin" class="ghost" title="Re-login">↻ Re-login</button>
+    <div class="header-actions">
+      <div class="theme-switch" role="group" aria-label="Color theme">
+        <button type="button" class="theme-btn" data-theme-pref="dark" title="Warm dark (amber accents)">Dark</button>
+        <button type="button" class="theme-btn" data-theme-pref="light" title="Light day theme">Light</button>
+        <button type="button" class="theme-btn" data-theme-pref="ocean" title="Cool teal and violet palette">Ocean</button>
+        <button type="button" class="theme-btn" data-theme-pref="peach" title="Warm beige and peach palette">Peach</button>
+        <button type="button" class="theme-btn" data-theme-pref="system" title="Match system">Auto</button>
+      </div>
+      <div class="session" id="session-strip">
+        <span class="dot" id="session-dot"></span>
+        <span id="session-text">Connecting…</span>
+        <button id="relogin" class="ghost" title="Re-login">↻ Re-login</button>
+        <button id="quit-bot" class="ghost quit-bot" title="Stop bot and close GUI server">Quit bot</button>
+      </div>
     </div>
   </header>
 
   <div class="account-bar" id="account-bar">
-    <div class="account-item">
-      <span class="account-lbl">Player</span>
-      <span class="account-val" id="acc-player">—</span>
+    <div class="account-bar-left">
+      <div class="account-item">
+        <span class="account-lbl">Player</span>
+        <span class="account-val" id="acc-player">—</span>
+      </div>
+      <div class="account-item">
+        <span class="account-lbl">Login</span>
+        <span class="account-val" id="acc-login">—</span>
+      </div>
+      <div class="account-item">
+        <span class="account-lbl">IP</span>
+        <span class="account-val mono" id="acc-ip">—</span>
+      </div>
+      <button type="button" id="refresh-account" class="ghost" title="Refresh player name and IP">Refresh</button>
     </div>
-    <div class="account-item">
-      <span class="account-lbl">Login</span>
-      <span class="account-val" id="acc-login">—</span>
+
+    <div class="account-bar-scheduler">
+      <section class="schedule-panel schedule-panel--inline" id="schedule-panel">
+        <form id="schedule-form" class="schedule-form schedule-form--inline" autocomplete="off">
+          <div class="schedule-inline-head">
+            <span class="proxy-bar-label">Scheduler</span>
+            <span class="schedule-dot" id="schedule-dot" aria-hidden="true"></span>
+            <span class="schedule-status-text" id="schedule-status-text">—</span>
+            <span class="schedule-line muted" id="schedule-periodic-line">—</span>
+            <span class="schedule-line muted" id="schedule-resource-line">—</span>
+          </div>
+          <div class="schedule-fields-row schedule-fields-row--inline">
+            <label class="proxy-check" title="Hero + resource claims on a timer (npm run schedule)">
+              <input type="checkbox" id="schedule-enabled" name="periodicEnabled" />
+              <span>All bonuses</span>
+            </label>
+            <label class="schedule-interval-lbl">
+              <input class="proxy-inp schedule-hours" type="number" id="schedule-interval" name="intervalHours" min="0.25" step="0.25" value="3" title="Hours between full runs" />
+              <span>h</span>
+            </label>
+            <label class="proxy-check" title="Include +15% shop videos when the scheduler runs">
+              <input type="checkbox" id="resource-sched-enabled" name="resourceEnabled" />
+              <span>Resources</span>
+            </label>
+            <label class="schedule-interval-lbl">
+              <input class="proxy-inp schedule-hours" type="number" id="resource-sched-interval" name="resourceIntervalHours" min="0.25" step="0.25" value="8" title="Hours between resource batches" />
+              <span>h</span>
+            </label>
+            <button type="submit" class="proxy-save schedule-save proxy-btn-sm">Save</button>
+            <button type="button" id="schedule-run-now" class="ghost proxy-btn-sm schedule-run-now" title="Start the next full bonus claim cycle now">Run now</button>
+          </div>
+        </form>
+        <p class="schedule-hint muted" id="schedule-save-hint">Save — checks hero/resources on the timer; hero videos only when not already active (~8h)</p>
+      </section>
     </div>
-    <div class="account-item">
-      <span class="account-lbl">IP</span>
-      <span class="account-val mono" id="acc-ip">—</span>
-    </div>
-    <button type="button" id="refresh-account" class="ghost" title="Refresh player name and IP">Refresh</button>
   </div>
 
-  <div class="proxy-panel-wrap">
-    <section class="proxy-panel" id="proxy-panel">
-      <form id="proxy-form" class="proxy-form" autocomplete="off">
-        <div class="proxy-status-row">
-          <span class="proxy-bar-label">Proxy</span>
-          <span class="proxy-dot" id="proxy-dot" aria-hidden="true"></span>
-          <span class="proxy-status-text" id="proxy-status-text">—</span>
-          <button type="button" id="test-proxy" class="ghost proxy-btn-sm" title="Test proxy">Test</button>
+  <div class="proxy-totals-row">
+    <div class="proxy-panel-wrap">
+        <section class="proxy-panel" id="proxy-panel">
+          <form id="proxy-form" class="proxy-form" autocomplete="off">
+            <div class="proxy-status-row">
+              <span class="proxy-bar-label">Proxy</span>
+              <span class="proxy-dot" id="proxy-dot" aria-hidden="true"></span>
+              <span class="proxy-status-text" id="proxy-status-text">—</span>
+              <button type="button" id="test-proxy" class="ghost proxy-btn-sm" title="Test active proxy">Test</button>
+            </div>
+            <div class="proxy-list-head">
+              <span class="proxy-bar-label">Pool</span>
+              <span class="proxy-pool-meta muted" id="proxy-pool-meta">—</span>
+            </div>
+            <ul class="proxy-list" id="proxy-list" aria-label="Configured proxies"></ul>
+            <div class="proxy-add-row">
+              <input class="proxy-inp" type="text" id="proxy-add-input" placeholder="Add host:port" spellcheck="false" autocomplete="off" />
+              <button type="button" id="proxy-add-btn" class="ghost proxy-btn-sm">Add</button>
+            </div>
+            <div class="proxy-fields-row">
+              <label class="proxy-check">
+                <input type="checkbox" id="proxy-enabled" name="enabled" />
+                <span>On</span>
+              </label>
+              <select class="proxy-inp proxy-select" id="proxy-rotation" name="rotation" title="How to pick the next proxy on Re-login">
+                <option value="round-robin">Round-robin</option>
+                <option value="random">Random</option>
+                <option value="sticky">Sticky (first)</option>
+              </select>
+              <input class="proxy-inp" type="text" id="proxy-username" name="username" placeholder="User" autocomplete="off" />
+              <input class="proxy-inp" type="password" id="proxy-password" name="password" placeholder="Leave empty to keep current" autocomplete="new-password" aria-describedby="proxy-pass-hint" />
+              <input class="proxy-inp" type="text" id="proxy-bypass" name="bypass" placeholder="Bypass" spellcheck="false" />
+              <button type="submit" class="proxy-save proxy-btn-sm">Save</button>
+            </div>
+          </form>
+          <p class="proxy-pass-hint muted" id="proxy-pass-hint">Proxy password is stored in config.json only when you set one.</p>
+          <p class="proxy-hint muted" id="proxy-save-hint">http:// added automatically · Re-login applies next proxy</p>
+        </section>
+    </div>
+
+    <section class="card totals-card">
+        <header class="card-header">
+          <h2>Lifetime totals</h2>
+          <div class="card-actions"><span class="muted" id="last-bonus">Last completed: —</span></div>
+        </header>
+        <p class="totals-lead">
+          Successful video claims on this PC (<code>data/totals-state.json</code>). Counts rise only after a video finishes — not live buff timers.
+        </p>
+        <div class="totals-grid">
+          <div class="total">
+            <span class="total-value" id="t-time">0</span>
+            <span class="total-label">Hero time</span>
+            <span class="total-help">−25% travel videos</span>
+          </div>
+          <div class="total">
+            <span class="total-value" id="t-danger">0</span>
+            <span class="total-label">Hero danger</span>
+            <span class="total-help">Danger reduction videos</span>
+          </div>
+          <div class="total">
+            <span class="total-value" id="t-Wood">0</span>
+            <span class="total-label">Wood</span>
+            <span class="total-help">+15% lumber videos</span>
+          </div>
+          <div class="total">
+            <span class="total-value" id="t-Clay">0</span>
+            <span class="total-label">Clay</span>
+            <span class="total-help">+15% clay videos</span>
+          </div>
+          <div class="total">
+            <span class="total-value" id="t-Iron">0</span>
+            <span class="total-label">Iron</span>
+            <span class="total-help">+15% iron videos</span>
+          </div>
+          <div class="total">
+            <span class="total-value" id="t-Crop">0</span>
+            <span class="total-label">Crop</span>
+            <span class="total-help">+15% crop videos</span>
+          </div>
         </div>
-        <div class="proxy-fields-row">
-          <label class="proxy-check">
-            <input type="checkbox" id="proxy-enabled" name="enabled" />
-            <span>On</span>
-          </label>
-          <input class="proxy-inp" type="text" id="proxy-server" name="server" placeholder="Server" spellcheck="false" title="http://host:port" />
-          <input class="proxy-inp" type="text" id="proxy-username" name="username" placeholder="User" autocomplete="off" />
-          <input class="proxy-inp" type="password" id="proxy-password" name="password" placeholder="Pass" autocomplete="new-password" title="Blank keeps saved" />
-          <input class="proxy-inp" type="text" id="proxy-bypass" name="bypass" placeholder="Bypass" spellcheck="false" />
-          <button type="submit" class="proxy-save proxy-btn-sm">Save</button>
-        </div>
-      </form>
-      <p class="proxy-hint muted" id="proxy-save-hint"></p>
-    </section>
+      </section>
   </div>
 
   <main>
-    <!-- =================== Hero panel =================== -->
     <section class="card hero-card">
-      <header class="card-header">
-        <h2>Hero</h2>
-        <div class="card-actions">
-          <button class="ghost" id="refresh-hero" data-action="refresh-hero">Refresh</button>
-        </div>
-      </header>
-      <div class="hero-grid">
-        <div class="hero-portrait">
-          <div class="avatar">🛡️</div>
-          <div>
-            <div class="hero-name" id="hero-name">Hero</div>
-            <div class="hero-level"><span class="tag">Adventures</span> <span id="hero-badge">—</span></div>
+        <header class="card-header">
+          <h2>Hero</h2>
+          <div class="card-actions">
+            <button class="ghost" id="refresh-hero" data-action="refresh-hero">Refresh</button>
           </div>
-        </div>
-        <div class="hero-bars">
-          <div class="bar-block">
-            <div class="bar-label"><span>Health</span><span id="hero-health-text">—</span></div>
-            <div class="bar"><div class="bar-fill health" id="hero-health-bar"></div></div>
+        </header>
+        <div class="hero-grid">
+          <div class="hero-portrait">
+            <div class="avatar">🛡️</div>
+            <div>
+              <div class="hero-name" id="hero-name">Hero</div>
+              <div class="hero-level"><span class="tag">Adventures</span> <span id="hero-badge">—</span></div>
+            </div>
           </div>
-          <div class="bar-block">
-            <div class="bar-label"><span>Experience</span><span id="hero-xp-text">—</span></div>
-            <div class="bar"><div class="bar-fill xp" id="hero-xp-bar"></div></div>
+          <div class="hero-bars">
+            <div class="bar-block">
+              <div class="bar-label"><span>Health</span><span id="hero-health-text">—</span></div>
+              <div class="bar"><div class="bar-fill health" id="hero-health-bar"></div></div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label"><span>Experience</span><span id="hero-xp-text">—</span></div>
+              <div class="bar"><div class="bar-fill xp" id="hero-xp-bar"></div></div>
+            </div>
           </div>
+          <div class="hero-stats">
+            <div class="stat"><span class="stat-label">Fight strength</span><span class="stat-value" id="stat-power">—</span></div>
+            <div class="stat"><span class="stat-label">Off bonus</span><span class="stat-value" id="stat-off">—</span></div>
+            <div class="stat"><span class="stat-label">Def bonus</span><span class="stat-value" id="stat-def">—</span></div>
+            <div class="stat"><span class="stat-label">Resource bonus</span><span class="stat-value" id="stat-res">—</span></div>
+            <div class="stat"><span class="stat-label">Free points</span><span class="stat-value" id="stat-free">—</span></div>
+            <div class="stat"><span class="stat-label">Speed</span><span class="stat-value" id="stat-speed">—</span></div>
+            <div class="stat"><span class="stat-label">Experience</span><span class="stat-value" id="stat-xp">—</span></div>
+            <div class="stat"><span class="stat-label">Home village</span><span class="stat-value" id="stat-village">—</span></div>
+          </div>
+          <section class="adventures-panel" aria-labelledby="adventures-heading">
+            <div class="adventures-panel-head">
+              <h3 id="adventures-heading">Adventures</h3>
+              <div class="adventures-actions">
+                <button type="button" class="ghost" data-action="refresh-adventures" id="refresh-adventures">Refresh</button>
+                <button type="button" class="ghost adventures-send-btn" data-action="send-shortest-adventure" id="send-shortest-adventure" title="Send hero to the adventure with the shortest travel time">Send shortest</button>
+              </div>
+            </div>
+            <p class="adventures-status muted" id="adventures-status" aria-live="polite">—</p>
+            <ul class="adventures-list" id="adventures-list"></ul>
+          </section>
         </div>
-        <div class="hero-stats">
-          <div class="stat"><span class="stat-label">Fight strength</span><span class="stat-value" id="stat-power">—</span></div>
-          <div class="stat"><span class="stat-label">Off bonus</span><span class="stat-value" id="stat-off">—</span></div>
-          <div class="stat"><span class="stat-label">Def bonus</span><span class="stat-value" id="stat-def">—</span></div>
-          <div class="stat"><span class="stat-label">Resource bonus</span><span class="stat-value" id="stat-res">—</span></div>
-          <div class="stat"><span class="stat-label">Free points</span><span class="stat-value" id="stat-free">—</span></div>
-          <div class="stat"><span class="stat-label">Speed</span><span class="stat-value" id="stat-speed">—</span></div>
-          <div class="stat"><span class="stat-label">Experience</span><span class="stat-value" id="stat-xp">—</span></div>
-          <div class="stat"><span class="stat-label">Home village</span><span class="stat-value" id="stat-village">—</span></div>
-        </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- =================== Bonus actions =================== -->
     <section class="card bonus-card">
-      <header class="card-header">
-        <h2>Gather bonuses</h2>
-        <div class="card-actions">
-          <span class="muted" id="bonus-next">—</span>
-          <button class="ghost" id="refresh-bonuses" data-action="refresh-bonuses">Refresh all bonuses</button>
+        <header class="card-header">
+          <h2>Gather bonuses</h2>
+          <div class="card-actions">
+            <span class="muted" id="bonus-next">—</span>
+            <button class="ghost" id="refresh-bonuses" data-action="refresh-bonuses">Refresh all bonuses</button>
+          </div>
+        </header>
+        <div class="bonus-grid">
+          <button class="bonus" data-action="bonus" data-endpoint="/api/bonus/time">
+            <span class="bonus-icon">⏱️</span>
+            <span class="bonus-title">Adventure time bonus</span>
+            <span class="bonus-sub">−25% travel time</span>
+            <span class="bonus-status inactive" id="status-time">Not Claimed</span>
+          </button>
+          <button class="bonus" data-action="bonus" data-endpoint="/api/bonus/danger">
+            <span class="bonus-icon">⚔️</span>
+            <span class="bonus-title">Adventure hardness bonus</span>
+            <span class="bonus-sub">Reduced danger</span>
+            <span class="bonus-status inactive" id="status-danger">Not Claimed</span>
+          </button>
+          <button class="bonus res-wood" data-action="bonus" data-endpoint="/api/bonus/resource/Wood">
+            <span class="bonus-icon">🌲</span>
+            <span class="bonus-title">Wood resource bonus</span>
+            <span class="bonus-sub">+15% lumber</span>
+            <span class="bonus-status inactive" id="status-Wood">Not Claimed</span>
+          </button>
+          <button class="bonus res-clay" data-action="bonus" data-endpoint="/api/bonus/resource/Clay">
+            <span class="bonus-icon">🧱</span>
+            <span class="bonus-title">Clay resource bonus</span>
+            <span class="bonus-sub">+15% clay</span>
+            <span class="bonus-status inactive" id="status-Clay">Not Claimed</span>
+          </button>
+          <button class="bonus res-iron" data-action="bonus" data-endpoint="/api/bonus/resource/Iron">
+            <span class="bonus-icon">⛏️</span>
+            <span class="bonus-title">Iron resource bonus</span>
+            <span class="bonus-sub">+15% iron</span>
+            <span class="bonus-status inactive" id="status-Iron">Not Claimed</span>
+          </button>
+          <button class="bonus res-crop" data-action="bonus" data-endpoint="/api/bonus/resource/Crop">
+            <span class="bonus-icon">🌾</span>
+            <span class="bonus-title">Crop resource bonus</span>
+            <span class="bonus-sub">+15% crop</span>
+            <span class="bonus-status inactive" id="status-Crop">Not Claimed</span>
+          </button>
         </div>
-      </header>
-      <div class="bonus-grid">
-
-        <button class="bonus" data-action="bonus" data-endpoint="/api/bonus/time">
-          <span class="bonus-icon">⏱️</span>
-          <span class="bonus-title">Adventure time bonus</span>
-          <span class="bonus-sub">−25% travel time</span>
-          <span class="bonus-status" id="status-time">Ready</span>
-        </button>
-
-        <button class="bonus" data-action="bonus" data-endpoint="/api/bonus/danger">
-          <span class="bonus-icon">⚔️</span>
-          <span class="bonus-title">Adventure hardness bonus</span>
-          <span class="bonus-sub">Reduced danger</span>
-          <span class="bonus-status" id="status-danger">Ready</span>
-        </button>
-
-        <button class="bonus res-wood" data-action="bonus" data-endpoint="/api/bonus/resource/Wood">
-          <span class="bonus-icon">🌲</span>
-          <span class="bonus-title">Wood resource bonus</span>
-          <span class="bonus-sub">+15% lumber</span>
-          <span class="bonus-status" id="status-Wood">Ready</span>
-        </button>
-
-        <button class="bonus res-clay" data-action="bonus" data-endpoint="/api/bonus/resource/Clay">
-          <span class="bonus-icon">🧱</span>
-          <span class="bonus-title">Clay resource bonus</span>
-          <span class="bonus-sub">+15% clay</span>
-          <span class="bonus-status" id="status-Clay">Ready</span>
-        </button>
-
-        <button class="bonus res-iron" data-action="bonus" data-endpoint="/api/bonus/resource/Iron">
-          <span class="bonus-icon">⛏️</span>
-          <span class="bonus-title">Iron resource bonus</span>
-          <span class="bonus-sub">+15% iron</span>
-          <span class="bonus-status" id="status-Iron">Ready</span>
-        </button>
-
-        <button class="bonus res-crop" data-action="bonus" data-endpoint="/api/bonus/resource/Crop">
-          <span class="bonus-icon">🌾</span>
-          <span class="bonus-title">Crop resource bonus</span>
-          <span class="bonus-sub">+15% crop</span>
-          <span class="bonus-status" id="status-Crop">Ready</span>
-        </button>
-
-      </div>
-      <div class="resource-claim-all">
-        <button class="claim-all-resources" id="claim-all-resources" data-action="claim-all-resources">
-          Claim all available resources
-        </button>
-        <span class="muted claim-all-hint">Opens shop once, watches every claimable +15% video</span>
-        <span class="claim-all-result muted" id="claim-all-result" aria-live="polite"></span>
-      </div>
-    </section>
-
-    <section class="card totals-card">
-      <header class="card-header">
-        <h2>Lifetime totals</h2>
-        <div class="card-actions"><span class="muted" id="last-bonus">Last completed: —</span></div>
-      </header>
-      <p class="totals-lead">
-        Count of <strong>successful video bonuses</strong> claimed by this bot on this PC.
-        Stored in <code>totals-state.json</code> — only goes up when a video finishes; not your in-game buff timers.
-      </p>
-      <div class="totals-grid">
-        <div class="total">
-          <span class="total-value" id="t-time">0</span>
-          <span class="total-label">Hero time</span>
-          <span class="total-help">Adventure travel −25% videos</span>
+        <div class="resource-claim-all">
+          <button class="claim-all-resources" id="claim-all-resources" data-action="claim-all-resources">
+            Claim all available resources
+          </button>
+          <span class="muted claim-all-hint">Opens shop once, watches every claimable +15% video</span>
+          <span class="claim-all-result muted" id="claim-all-result" aria-live="polite"></span>
         </div>
-        <div class="total">
-          <span class="total-value" id="t-danger">0</span>
-          <span class="total-label">Hero danger</span>
-          <span class="total-help">Adventure danger reduction videos</span>
-        </div>
-        <div class="total">
-          <span class="total-value" id="t-Wood">0</span>
-          <span class="total-label">Wood</span>
-          <span class="total-help">+15% lumber production videos</span>
-        </div>
-        <div class="total">
-          <span class="total-value" id="t-Clay">0</span>
-          <span class="total-label">Clay</span>
-          <span class="total-help">+15% clay production videos</span>
-        </div>
-        <div class="total">
-          <span class="total-value" id="t-Iron">0</span>
-          <span class="total-label">Iron</span>
-          <span class="total-help">+15% iron production videos</span>
-        </div>
-        <div class="total">
-          <span class="total-value" id="t-Crop">0</span>
-          <span class="total-label">Crop</span>
-          <span class="total-help">+15% crop production videos</span>
-        </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- =================== Extensions slot =================== -->
-    <!-- Drop new feature cards in here as the bot grows.
-         Each new feature should be self-contained with its own card. -->
     <section class="card extensions-card" id="extensions">
-      <header class="card-header">
-        <h2>Extensions</h2>
-        <div class="card-actions"><span class="muted">space for improvements</span></div>
-      </header>
-      <ul class="extensions-list">
-        <li class="placeholder">Auto-send hero on adventures</li>
-        <li class="placeholder">Build queue manager</li>
-        <li class="placeholder">Troop training queue</li>
-        <li class="placeholder">Farm list runner</li>
-        <li class="placeholder">Marketplace exchange</li>
-        <li class="placeholder">Multi-account profiles</li>
-      </ul>
-    </section>
+        <header class="card-header">
+          <h2>Extensions</h2>
+          <div class="card-actions"><span class="muted">space for improvements</span></div>
+        </header>
+        <ul class="extensions-list">
+          <li class="placeholder">Build queue manager</li>
+          <li class="placeholder">Troop training queue</li>
+          <li class="placeholder">Farm list runner</li>
+          <li class="placeholder">Marketplace exchange</li>
+          <li class="placeholder">Multi-account profiles</li>
+        </ul>
+      </section>
 
-    <!-- =================== Activity log =================== -->
     <section class="card log-card">
-      <header class="card-header">
-        <h2>Activity</h2>
-        <div class="card-actions">
-          <button class="ghost" id="clear-log">Clear view</button>
-        </div>
-      </header>
-      <pre id="log" class="log"></pre>
-    </section>
+        <header class="card-header">
+          <h2>Activity</h2>
+          <div class="card-actions">
+            <button class="ghost" id="clear-log">Clear view</button>
+          </div>
+        </header>
+        <pre id="log" class="log"></pre>
+      </section>
   </main>
 
   <script src="/app.js"></script>
+  <script src="/dev-reload.js"></script>
 </body>
 </html>

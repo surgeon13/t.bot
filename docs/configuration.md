@@ -74,7 +74,9 @@ All browser traffic (GUI, menu, scheduler, `npm run bonuses` / `resources`) goes
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `proxy.enabled` | boolean | `false` | Set `true` to route Chromium through `proxy.server`. |
-| `proxy.server` | string | `""` | Required when enabled. e.g. `http://host:8080`, `https://host:443`, `socks5://host:1080` |
+| `proxy.server` | string | `""` | Single proxy, or first entry when `servers` is set. `host:port` is fine — **`http://` is added automatically**. |
+| `proxy.servers` | string[] | `[]` | Optional list of proxies (same shared username/password). GUI accepts comma- or newline-separated values in the server field. |
+| `proxy.rotation` | string | `"round-robin"` | With multiple servers: `round-robin` (next proxy on each new browser session / Re-login), `random`, or `sticky` (always first). |
 | `proxy.username` | string | `""` | Optional proxy authentication. |
 | `proxy.password` | string | `""` | Optional proxy password (stored in `config.json` — keep file private). |
 | `proxy.bypass` | string | `""` | Optional comma-separated hosts that skip the proxy (Playwright `bypass` list). |
@@ -117,7 +119,9 @@ The scheduler can wake **earlier** if `resourceBonuses` is enabled and `resource
 
 ## State files
 
-### `resource-bonus-state.json`
+All runtime state lives under **`data/`** (gitignored). On first run after an upgrade, files in the project root are moved into `data/` automatically.
+
+### `data/resource-bonus-state.json`
 
 Written by `resourceBonuses.js`. Example:
 
@@ -142,7 +146,7 @@ Written by `resourceBonuses.js`. Example:
 
 If no claimable videos were found, the bot may retry sooner (about **30 minutes**) instead of waiting the full interval.
 
-### `schedule-state.json`
+### `data/schedule-state.json`
 
 Updated by `scheduler.js` for the menu’s “next run” line. Safe to delete; it will be recreated.
 

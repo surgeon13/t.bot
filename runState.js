@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const LOG_FILE = path.join(__dirname, 'bot.log');
+const { LOG_FILE } = require('./paths');
 let lastCompletedBonus = null;
 
 function setLastCompletedBonus(value) {

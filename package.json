@@ -1,6 +1,6 @@
 {
   "name": "t.bot",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Travian helper: claim hero and resource video bonuses via Playwright.",
   "main": "menu.js",
   "scripts": {
@@ -10,6 +10,7 @@
     "resources": "node claim-resource-bonuses.js",
     "schedule": "node scheduler.js",
     "gui": "node gui.js",
+    "gui:dev": "nodemon gui.js",
     "export": "node scripts/export-zip.js"
   },
   "keywords": [
@@ -29,6 +30,7 @@
     "playwright": "^1.59.1"
   },
   "devDependencies": {
-    "archiver": "^7.0.1"
+    "archiver": "^7.0.1",
+    "nodemon": "^3.1.10"
   }
 }

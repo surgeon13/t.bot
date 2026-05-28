@@ -32,12 +32,14 @@ Each resource has a row:
 
 ## Video flow
 
-1. Click the resource’s Activate in `.bonusVideo`.  
-2. Info dialog: **Watch video** (`button.dialogButtonOk`).  
+1. Click the resource’s Activate in `.bonusVideo` (scroll + force click inside the open shop).  
+2. Info dialog: **Watch video** / **Continue** (`button.dialogButtonOk` or purple/green buttons).  
 3. Player in iframe `#videoArea` (may need play click; headless may auto-play).  
 4. Wait until video UI disappears (up to **2 minutes**).  
 
-Implemented in `videoAds.js`, shared with hero adventure videos.
+`videoAds.js` polls for `#videoArea`, `.dialog.videoFeature`, or pre-video buttons (shop wizard can stack dialogs). On failure it writes `debug/video-no-video-ui-*.json` for inspection.
+
+Shared with hero adventure videos.
 
 ## Commands
 
@@ -51,7 +53,7 @@ Implemented in `videoAds.js`, shared with hero adventure videos.
 
 ## Polling vs claiming
 
-- **Poll** (`pollResourceBonusesViaWizard`) — opens shop, reads four boxes, closes shop. Used by GUI refresh and `/api/bonuses/status`.  
+- **Poll** (`pollResourceBonusesViaWizard`) — opens shop, reads four boxes, closes shop. Used by GUI **Refresh all bonuses**, resource-button refresh, and `GET /api/bonuses/status?scope=resources` (or `scope=all`). Hero-only GUI actions use `scope=hero` and do not open the shop.  
 - **Claim batch** — opens shop once, loops `available` list, reopens shop if Travian closed the wizard after a video.  
 - **Claim single** — opens shop, one resource, closes shop.
 

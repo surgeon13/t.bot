@@ -21,6 +21,22 @@ function pct(n) {
   return (n == null || isNaN(n)) ? '—' : `${Math.round(n)}%`;
 }
 
+/** Parse JSON from API responses; surface HTML/404 pages as a clear error. */
+async function parseApiJson(res) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    if (/^\s*</.test(text)) {
+      throw new Error(
+        'Server returned a web page instead of JSON. Stop the GUI (Ctrl+C) and start it again with npm run gui.',
+      );
+    }
+    throw new Error(`Invalid server response (${res.status})`);
+  }
+}
+
 /* ----- Status + Hero refresh ----- */
 
 async function fetchStatus() {
@@ -49,16 +65,22 @@ function paintStatus(s) {
   }
 
   if (s.nextResourceBonusLine) {
-    $('#bonus-next').textContent = s.nextResourceBonusLine.replace(/^\s*Resource bonus\s*:\s*/, '');
+    const bonusNext = $('#bonus-next');
+    if (bonusNext) {
+      bonusNext.textContent = s.nextResourceBonusLine.replace(/^\s*Resource bonus\s*:\s*/, '');
+    }
   }
 
+  if (s.scheduleStatus) paintScheduleStatus(s.scheduleStatus);
+  if (s.scheduleConfig && !scheduleFormDirty) fillScheduleForm(s.scheduleConfig);
+
   if (s.totals) {
-    setText('#t-time',   s.totals.heroTimeBonuses);
+    setText('#t-time', s.totals.heroTimeBonuses);
     setText('#t-danger', s.totals.heroDangerBonuses);
-    setText('#t-Wood',   s.totals.woodBonuses);
-    setText('#t-Clay',   s.totals.clayBonuses);
-    setText('#t-Iron',   s.totals.ironBonuses);
-    setText('#t-Crop',   s.totals.cropBonuses);
+    setText('#t-Wood', s.totals.woodBonuses);
+    setText('#t-Clay', s.totals.clayBonuses);
+    setText('#t-Iron', s.totals.ironBonuses);
+    setText('#t-Crop', s.totals.cropBonuses);
   }
 
   if (s.lastBonus) {
@@ -69,10 +91,304 @@ function paintStatus(s) {
 
   if (s.proxy) paintProxy(s.proxy);
   if (s.account) paintAccount(s.account);
+  maybeRefreshAccountInfo(s);
   if (s.proxyConfig && !proxyFormDirty) fillProxyForm(s.proxyConfig);
+  else if (s.proxyConfig) paintProxyListMarkers(s.proxyConfig, s.proxy);
+  else if (s.proxy) paintProxyListMarkers(null, s.proxy);
 }
 
 let proxyFormDirty = false;
+let scheduleFormDirty = false;
+let accountAutoRefreshTimer = null;
+let accountAutoRefreshAttempts = 0;
+
+/** Re-fetch player/IP once or twice after login when the first read missed (SPA / CSP). */
+function maybeRefreshAccountInfo(s) {
+  if (!s.loggedIn || accountAutoRefreshTimer || accountAutoRefreshAttempts >= 2) return;
+  const a = s.account;
+  if (!a) return;
+  if (a.playerName && a.publicIp) {
+    accountAutoRefreshAttempts = 0;
+    return;
+  }
+  accountAutoRefreshTimer = setTimeout(async () => {
+    accountAutoRefreshTimer = null;
+    accountAutoRefreshAttempts += 1;
+    await refreshAccount();
+  }, 2500);
+}
+
+function paintScheduleStatus(st) {
+  const dot = $('#schedule-dot');
+  const txt = $('#schedule-status-text');
+  const periodicLine = $('#schedule-periodic-line');
+  const resourceLine = $('#schedule-resource-line');
+  if (!dot || !txt) return;
+
+  if (st.periodicEnabled) {
+    dot.className = st.schedulerRunning ? 'schedule-dot on' : 'schedule-dot warn';
+    txt.textContent = st.schedulerRunning
+      ? 'Periodic claims ON'
+      : 'Periodic ON — scheduler not running';
+  } else {
+    dot.className = 'schedule-dot off';
+    txt.textContent = 'Periodic claims OFF';
+  }
+
+  if (periodicLine) periodicLine.textContent = st.periodicLine || '—';
+  if (resourceLine) resourceLine.textContent = st.resourceLine || '—';
+
+  if (st.periodicEnabled && st.periodicNextAt) {
+    const due = new Date(st.periodicNextAt).getTime() <= Date.now();
+    if (due) dot.className = 'schedule-dot warn';
+  }
+
+  updateScheduleRunNowButton(st);
+}
+
+function updateScheduleRunNowButton(st) {
+  const btn = $('#schedule-run-now');
+  if (!btn) return;
+  const on = !!st?.periodicEnabled;
+  btn.disabled = !on;
+  btn.title = on
+    ? 'Start the next full bonus claim cycle now (hero + due resources)'
+    : 'Turn on All bonuses and Save first';
+}
+
+function fillScheduleForm(cfg) {
+  if (!cfg) return;
+  const periodic = $('#schedule-enabled');
+  const interval = $('#schedule-interval');
+  const resOn = $('#resource-sched-enabled');
+  const resH = $('#resource-sched-interval');
+  if (periodic) periodic.checked = !!cfg.periodicEnabled;
+  if (interval) interval.value = String(cfg.intervalHours ?? 3);
+  if (resOn) resOn.checked = !!cfg.resourceEnabled;
+  if (resH) resH.value = String(cfg.resourceIntervalHours ?? 8);
+}
+
+function collectScheduleForm() {
+  return {
+    periodicEnabled: !!$('#schedule-enabled')?.checked,
+    intervalHours: Number($('#schedule-interval')?.value) || 3,
+    resourceEnabled: !!$('#resource-sched-enabled')?.checked,
+    resourceIntervalHours: Number($('#resource-sched-interval')?.value) || 8,
+  };
+}
+
+async function saveScheduleForm(ev) {
+  ev.preventDefault();
+  const hint = $('#schedule-save-hint');
+  const btn = $('#schedule-form')?.querySelector('.schedule-save');
+  if (btn) btn.disabled = true;
+  if (hint) {
+    hint.className = 'schedule-hint muted';
+    hint.textContent = 'Saving…';
+  }
+
+  try {
+    const res = await fetch('/api/config/schedule', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectScheduleForm()),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.message || 'Save failed');
+
+    scheduleFormDirty = false;
+    if (data.schedule) fillScheduleForm(data.schedule);
+    if (data.scheduleStatus) paintScheduleStatus(data.scheduleStatus);
+    if (hint) {
+      hint.className = 'schedule-hint ok';
+      hint.textContent = data.message || 'Schedule saved to config.json';
+    }
+    fetchStatus();
+  } catch (err) {
+    if (hint) {
+      hint.className = 'schedule-hint fail';
+      hint.textContent = err.message || 'Could not save schedule';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runSchedulerNow() {
+  const btn = $('#schedule-run-now');
+  const hint = $('#schedule-save-hint');
+  if (btn) btn.disabled = true;
+  if (hint) {
+    hint.className = 'schedule-hint muted';
+    hint.textContent = 'Starting scheduled run…';
+  }
+
+  try {
+    const res = await fetch('/api/schedule/run-now', { method: 'POST' });
+    const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Run now failed (${res.status})`);
+    if (data.scheduleStatus) paintScheduleStatus(data.scheduleStatus);
+    if (hint) {
+      hint.className = 'schedule-hint ok';
+      hint.textContent = data.message || 'Scheduled run requested';
+    }
+    fetchStatus();
+  } catch (err) {
+    if (hint) {
+      hint.className = 'schedule-hint fail';
+      hint.textContent = err.message || 'Could not start scheduled run';
+    }
+    loadScheduleForm();
+  } finally {
+    const st = { periodicEnabled: !!$('#schedule-enabled')?.checked };
+    updateScheduleRunNowButton(st);
+  }
+}
+
+async function loadScheduleForm() {
+  try {
+    const res = await fetch('/api/config/schedule');
+    const data = await res.json();
+    if (data.schedule && !scheduleFormDirty) fillScheduleForm(data.schedule);
+    if (data.scheduleStatus) paintScheduleStatus(data.scheduleStatus);
+  } catch {
+    /* server starting */
+  }
+}
+
+function proxyServersFromCfg(cfg) {
+  if (!cfg) return [];
+  if (cfg.servers && cfg.servers.length) return cfg.servers.slice();
+  if (cfg.server) return [cfg.server];
+  return [];
+}
+
+function collectProxyServersFromDom() {
+  return $$('#proxy-list .proxy-item').map(li => li.dataset.address || '').filter(Boolean);
+}
+
+function renderProxyList(servers, meta = {}) {
+  const ul = $('#proxy-list');
+  const metaEl = $('#proxy-pool-meta');
+  if (!ul) return;
+
+  ul.innerHTML = '';
+  const list = servers.length ? servers : [];
+  const activeIdx = meta.serverIndex ?? 0;
+  const rotation = meta.rotation || 'round-robin';
+  const count = list.length;
+  const nextIdx = count > 1 && rotation === 'round-robin'
+    ? (activeIdx + 1) % count
+    : -1;
+
+  list.forEach((addr, i) => {
+    const li = document.createElement('li');
+    li.className = 'proxy-item';
+    li.dataset.address = addr;
+
+    const idx = document.createElement('span');
+    idx.className = 'proxy-item-idx';
+    idx.textContent = String(i + 1);
+
+    const address = document.createElement('span');
+    address.className = 'proxy-item-addr';
+    address.textContent = addr;
+    address.title = addr;
+
+    const tag = document.createElement('span');
+    tag.className = 'proxy-item-tag';
+    if (count > 1 && i === activeIdx) {
+      li.classList.add('active');
+      tag.textContent = 'Active';
+    } else if (count > 1 && i === nextIdx) {
+      tag.classList.add('next');
+      tag.textContent = 'Next';
+    } else {
+      tag.hidden = true;
+    }
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'proxy-item-remove';
+    remove.title = 'Remove proxy';
+    remove.setAttribute('aria-label', `Remove ${addr}`);
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      li.remove();
+      proxyFormDirty = true;
+      updateProxyPoolMeta();
+      if (!ul.children.length) ul.dispatchEvent(new Event('proxy-empty'));
+    });
+
+    li.append(idx, address, tag, remove);
+    ul.appendChild(li);
+  });
+
+  if (metaEl) {
+    if (!count) metaEl.textContent = 'None — add below';
+    else metaEl.textContent = `${count} proxy${count === 1 ? '' : 'ies'} · ${rotation}`;
+  }
+}
+
+function updateProxyPoolMeta() {
+  const metaEl = $('#proxy-pool-meta');
+  const rot = $('#proxy-rotation');
+  if (!metaEl) return;
+  const n = collectProxyServersFromDom().length;
+  const rotation = rot?.value || 'round-robin';
+  metaEl.textContent = n
+    ? `${n} proxy${n === 1 ? '' : 'ies'} · ${rotation}`
+    : 'None — add below';
+}
+
+function paintProxyListMarkers(cfg, status) {
+  const ul = $('#proxy-list');
+  if (!ul) return;
+  const servers = proxyServersFromCfg(cfg);
+  const activeIdx = cfg?.serverIndex ?? 0;
+  const count = servers.length;
+  const rotation = cfg?.rotation || 'round-robin';
+  const nextIdx = count > 1 && rotation === 'round-robin' ? (activeIdx + 1) % count : -1;
+  const state = status?.state;
+
+  $$('#proxy-list .proxy-item').forEach((li, i) => {
+    li.classList.remove('active', 'state-ok', 'state-fail', 'state-unknown', 'state-checking');
+    const tag = li.querySelector('.proxy-item-tag');
+    if (!tag) return;
+
+    if (count > 1 && i === activeIdx && cfg?.enabled) {
+      li.classList.add('active');
+      if (state && state !== 'off' && state !== 'checking') li.classList.add(`state-${state}`);
+      tag.classList.remove('next');
+      tag.hidden = false;
+      tag.textContent = status?.working === true ? 'Active ✓' : 'Active';
+    } else if (count > 1 && i === nextIdx) {
+      tag.classList.add('next');
+      tag.hidden = false;
+      tag.textContent = 'Next';
+    } else {
+      tag.hidden = true;
+      tag.textContent = '';
+      tag.classList.remove('next');
+    }
+  });
+}
+
+function addProxyFromInput() {
+  const inp = $('#proxy-add-input');
+  if (!inp) return;
+  const raw = inp.value.trim();
+  if (!raw) return;
+
+  const parts = raw.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+  const merged = [...new Set([...collectProxyServersFromDom(), ...parts])];
+  renderProxyList(merged, {
+    serverIndex: 0,
+    rotation: $('#proxy-rotation')?.value || 'round-robin',
+  });
+  inp.value = '';
+  proxyFormDirty = true;
+}
 
 function paintAccount(a) {
   const player = $('#acc-player');
@@ -80,8 +396,10 @@ function paintAccount(a) {
   const ip = $('#acc-ip');
   if (!player || !login || !ip) return;
 
-  player.textContent = a.playerName || (a.loggedIn === false ? '—' : 'Unknown');
-  player.title = a.playerName || 'In-game name from Travian UI';
+  player.textContent = a.playerName || (a.loggedIn ? 'Loading…' : '—');
+  player.title = a.playerName
+    ? 'In-game player name'
+    : (a.loggedIn ? 'Click Refresh — reading name from Travian UI' : 'Log in first');
   login.textContent = a.loginUsername || '—';
   login.title = a.serverUrl || '';
 
@@ -91,7 +409,7 @@ function paintAccount(a) {
     ip.classList.remove('fail');
   } else if (a.ipError) {
     ip.textContent = 'Unavailable';
-    ip.title = a.ipError;
+    ip.title = `${a.ipError} — click Refresh to retry`;
     ip.classList.add('fail');
   } else {
     ip.textContent = '—';
@@ -102,18 +420,30 @@ function paintAccount(a) {
 
 function fillProxyForm(cfg) {
   const en = $('#proxy-enabled');
-  const srv = $('#proxy-server');
+  const rot = $('#proxy-rotation');
   const user = $('#proxy-username');
   const bypass = $('#proxy-bypass');
-  if (!en || !srv) return;
+  if (!en) return;
   en.checked = !!cfg.enabled;
-  srv.value = cfg.server || '';
+  if (rot) rot.value = cfg.rotation || 'round-robin';
+  renderProxyList(proxyServersFromCfg(cfg), cfg);
   if (user) user.value = cfg.username || '';
   if (bypass) bypass.value = cfg.bypass || '';
   const pass = $('#proxy-password');
+  const passHint = $('#proxy-pass-hint');
   if (pass) {
     pass.value = '';
-    pass.placeholder = cfg.hasPassword ? 'Saved (leave blank to keep)' : 'Optional';
+    if (cfg.hasPassword) {
+      pass.placeholder = 'Leave empty to keep current';
+      pass.title = 'A password is already stored in config.json. Only type here if you want to replace it.';
+      if (passHint) {
+        passHint.textContent = 'Password is stored in config.json. Leave this field empty when you Save unless you are setting a new one.';
+      }
+    } else {
+      pass.placeholder = 'Set proxy password';
+      pass.title = 'Optional. Stored in config.json when you Save.';
+      if (passHint) passHint.textContent = 'No proxy password saved yet. Type one here only if your proxy requires it.';
+    }
   }
 }
 
@@ -140,9 +470,12 @@ async function saveProxyForm(ev) {
     hint.textContent = 'Saving…';
   }
 
+  const servers = collectProxyServersFromDom();
   const body = {
     enabled: $('#proxy-enabled')?.checked ?? false,
-    server: $('#proxy-server')?.value?.trim() ?? '',
+    servers,
+    server: servers[0] || '',
+    rotation: $('#proxy-rotation')?.value || 'round-robin',
     username: $('#proxy-username')?.value?.trim() ?? '',
     bypass: $('#proxy-bypass')?.value?.trim() ?? '',
     password: $('#proxy-password')?.value ?? '',
@@ -230,6 +563,15 @@ function paintProxy(p) {
     txt.className = 'proxy-status-text';
     txt.textContent = p.message || 'Off';
   }
+
+  const cfg = {
+    enabled: p.enabled,
+    servers: p.servers || (p.server ? [p.server] : []),
+    serverIndex: p.serverIndex ?? 0,
+    serverCount: p.serverCount ?? (p.servers?.length || (p.server ? 1 : 0)),
+    rotation: p.rotation || 'round-robin',
+  };
+  if (!proxyFormDirty) paintProxyListMarkers(cfg, p);
 }
 
 async function testProxy() {
@@ -271,6 +613,138 @@ async function refreshHero(deep = true) {
   } catch (err) {
     setText('#hero-name', '—');
     console.error(err);
+  }
+  refreshAdventures({ quiet: true });
+}
+
+async function refreshAdventures(options = {}) {
+  const quiet = options.quiet === true;
+  const statusEl = $('#adventures-status');
+  const listEl = $('#adventures-list');
+  const refreshBtn = $('#refresh-adventures');
+  const sendBtn = $('#send-shortest-adventure');
+
+  if (!quiet && statusEl) statusEl.textContent = 'Loading adventures…';
+  if (!quiet && refreshBtn) refreshBtn.disabled = true;
+  if (!quiet && sendBtn) sendBtn.disabled = true;
+
+  try {
+    const res = await fetch('/api/adventures');
+    const data = await res.json();
+    paintAdventures(data);
+  } catch (err) {
+    console.error(err);
+    if (statusEl) statusEl.textContent = 'Could not load adventures';
+    if (listEl) listEl.innerHTML = '';
+  } finally {
+    if (refreshBtn) refreshBtn.disabled = false;
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+function paintAdventures(data) {
+  const statusEl = $('#adventures-status');
+  const listEl = $('#adventures-list');
+  const sendBtn = $('#send-shortest-adventure');
+  if (!listEl) return;
+
+  listEl.innerHTML = '';
+
+  if (statusEl) statusEl.className = 'adventures-status muted';
+
+  if (!data || !data.ok) {
+    if (statusEl) statusEl.textContent = data?.message || 'Adventures unreachable';
+    if (sendBtn) sendBtn.disabled = true;
+    return;
+  }
+
+  const adventures = data.adventures || data.status?.adventures || [];
+  const heroAway = data.heroAway ?? data.status?.heroAway;
+  const shortestIndex = data.shortestIndex ?? data.status?.shortestIndex;
+
+  if (heroAway) {
+    if (statusEl) statusEl.textContent = 'Hero is on an adventure — list refreshes when they return.';
+    if (sendBtn) sendBtn.disabled = true;
+    return;
+  }
+
+  if (!adventures.length) {
+    if (statusEl) statusEl.textContent = 'No adventures available right now.';
+    if (sendBtn) sendBtn.disabled = true;
+    return;
+  }
+
+  const sendable = adventures.filter(a => a.canSend);
+  if (shortestIndex != null && sendable.length) {
+    const pick = adventures.find(a => a.index === shortestIndex);
+    if (statusEl) {
+      statusEl.textContent = pick
+        ? `${adventures.length} available — shortest: ${pick.place} (${pick.duration})`
+        : `${adventures.length} adventure(s) available`;
+    }
+  } else if (statusEl) {
+    statusEl.textContent = sendable.length
+      ? `${adventures.length} listed — ${sendable.length} sendable (no duration parsed for shortest)`
+      : `${adventures.length} listed — none sendable (hero busy?)`;
+  }
+
+  if (sendBtn) sendBtn.disabled = !sendable.length;
+
+  for (const a of adventures) {
+    const li = document.createElement('li');
+    li.className = 'adventure-item';
+    if (a.index === shortestIndex && a.canSend) li.classList.add('shortest');
+    if (!a.canSend) li.classList.add('unsendable');
+
+    const place = document.createElement('span');
+    place.className = 'adventure-place';
+    place.textContent = a.place || '?';
+    place.title = a.place || '';
+
+    const dist = document.createElement('span');
+    dist.className = 'adventure-meta';
+    dist.textContent = a.distance || '—';
+
+    const dur = document.createElement('span');
+    dur.className = 'adventure-meta';
+    dur.textContent = a.duration || '—';
+
+    const diff = document.createElement('span');
+    diff.className = `adventure-diff ${a.difficulty === 'Hard' ? 'hard' : 'normal'}`;
+    diff.textContent = a.difficulty || 'Normal';
+
+    li.append(place, dist, dur, diff);
+    if (a.index === shortestIndex && a.canSend) {
+      const tag = document.createElement('span');
+      tag.className = 'adventure-tag';
+      tag.textContent = 'Shortest';
+      li.appendChild(tag);
+      li.style.gridTemplateColumns = 'minmax(0, 1fr) auto auto auto auto';
+    }
+    listEl.appendChild(li);
+  }
+}
+
+async function sendShortestAdventure() {
+  const sendBtn = $('#send-shortest-adventure');
+  const statusEl = $('#adventures-status');
+  if (sendBtn) sendBtn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Sending hero to shortest adventure…';
+
+  try {
+    const res = await fetch('/api/adventures/send-shortest', { method: 'POST' });
+    const data = await res.json();
+    if (statusEl) {
+      statusEl.textContent = data.message || (data.ok ? 'Hero sent' : 'Send failed');
+      statusEl.className = data.ok ? 'adventures-status muted ok' : 'adventures-status muted fail';
+    }
+    await refreshAdventures({ quiet: true });
+    refreshHero(false);
+  } catch (err) {
+    console.error(err);
+    if (statusEl) statusEl.textContent = 'Network error while sending hero';
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
   }
 }
 
@@ -315,12 +789,31 @@ function statusSelectorFor(btn) {
   return `#status-${key === 'time' || key === 'danger' ? key : key}`;
 }
 
-function setBonusStatus(btn, statusClass, text) {
-  const sel = statusSelectorFor(btn);
-  const el = $(sel);
+function paintBonusStatusEl(el, statusClass, text) {
   if (!el) return;
   el.className = `bonus-status ${statusClass}`;
   el.textContent = text;
+}
+
+function paintNotClaimed(el) {
+  paintBonusStatusEl(el, 'inactive', 'Not Claimed');
+}
+
+function paintClaimed(el, timeLabel) {
+  const text = timeLabel ? `Claimed · ${timeLabel} left` : 'Claimed';
+  paintBonusStatusEl(el, 'claimed', text);
+}
+
+function bonusTimeLabel(info) {
+  if (!info) return null;
+  if (info.cooldownText && /\d+:\d+/.test(info.cooldownText)) return info.cooldownText.trim();
+  if (info.cooldownSeconds > 0) return formatCountdown(info.cooldownSeconds * 1000);
+  return null;
+}
+
+function setBonusStatus(btn, statusClass, text) {
+  const sel = statusSelectorFor(btn);
+  paintBonusStatusEl($(sel), statusClass, text);
 }
 
 /** Live countdowns for resources polled from Travian (resource name → endsAt ms). */
@@ -338,75 +831,70 @@ function formatCountdown(msLeft) {
 function paintResourceStatus(resource, info) {
   const el = $(`#status-${resource}`);
   if (!el) return;
-  if (info.status === 'claimable') {
-    delete bonusCooldownEnds[resource];
-    el.className = 'bonus-status claimed';
-    el.textContent = 'Claimable now';
-  } else if (info.status === 'active') {
-    el.className = 'bonus-status active';
+  if (info.status === 'active') {
+    const label = bonusTimeLabel(info);
     if (info.cooldownSeconds > 0) {
       bonusCooldownEnds[resource] = Date.now() + info.cooldownSeconds * 1000;
-      el.textContent = `Active — ${formatCountdown(info.cooldownSeconds * 1000)} left`;
     } else {
-      el.textContent = 'Active';
+      delete bonusCooldownEnds[resource];
     }
+    paintClaimed(el, label);
   } else if (info.status === 'missing') {
     delete bonusCooldownEnds[resource];
-    el.className = 'bonus-status unavail';
-    el.textContent = 'Box not present';
+    paintBonusStatusEl(el, 'unavail', 'Box not present');
   } else {
     delete bonusCooldownEnds[resource];
-    el.className = 'bonus-status unavail';
-    el.textContent = 'Unavailable';
+    paintNotClaimed(el);
   }
 }
 
 function paintHeroBonusFromPoll(key, info) {
   const el = $(`#status-${key}`);
   if (!el || !info) return;
-  if (info.status === 'claimable') {
-    el.className = 'bonus-status claimed';
-    el.textContent = 'Claimable now';
-  } else if (info.status === 'active') {
-    el.className = 'bonus-status active';
-    el.textContent = 'Active';
+  if (info.status === 'active') {
+    const label = bonusTimeLabel(info);
+    if (info.cooldownSeconds > 0) {
+      bonusCooldownEnds[key] = Date.now() + info.cooldownSeconds * 1000;
+    } else {
+      delete bonusCooldownEnds[key];
+    }
+    paintClaimed(el, label);
   } else {
-    el.className = 'bonus-status unavail';
-    el.textContent = 'Not available';
+    delete bonusCooldownEnds[key];
+    paintNotClaimed(el);
   }
 }
 
 function paintHeroBonusStatus(key, data) {
   const el = $(`#status-${key}`);
   if (!el) return;
-  if (data.status === 'claimed') {
-    el.className = 'bonus-status active';
-    el.textContent = 'Activated';
-  } else if (data.status === 'active') {
-    el.className = 'bonus-status active';
-    el.textContent = 'Already active';
+  if (data.status === 'claimed' || data.status === 'active') {
+    bonusCooldownEnds[key] = Date.now() + 8 * 60 * 60 * 1000;
+    paintClaimed(el, '08:00:00');
   } else if (data.status === 'unavailable') {
-    el.className = 'bonus-status unavail';
-    el.textContent = data.message || 'Not available';
+    paintNotClaimed(el);
   } else {
-    el.className = 'bonus-status failed';
-    el.textContent = data.message || 'Failed';
+    paintBonusStatusEl(el, 'failed', data.message || 'Failed');
   }
 }
 
 const BONUS_KEYS = ['time', 'danger', 'Wood', 'Clay', 'Iron', 'Crop'];
+const HERO_BONUS_KEYS = ['time', 'danger'];
+const RESOURCE_BONUS_KEYS = ['Wood', 'Clay', 'Iron', 'Crop'];
+
+function bonusKeysForScope(scope) {
+  if (scope === 'hero') return HERO_BONUS_KEYS;
+  if (scope === 'resources') return RESOURCE_BONUS_KEYS;
+  return BONUS_KEYS;
+}
 let bonusesSynced = false;
 let refreshPromise = null;
 let startupSyncStarted = false;
 let logRefreshTimer = null;
 
-function setAllBonusStatusesPolling() {
-  for (const key of BONUS_KEYS) {
-    const el = $(`#status-${key}`);
-    if (el) {
-      el.className = 'bonus-status busy';
-      el.textContent = 'Checking…';
-    }
+function setAllBonusStatusesPolling(keys = BONUS_KEYS) {
+  for (const key of keys) {
+    paintBonusStatusEl($(`#status-${key}`), 'busy', 'Checking…');
   }
 }
 
@@ -421,11 +909,7 @@ async function handleClaimAllResources() {
     resultEl.textContent = 'Checking shop and claiming videos…';
   }
   ['Wood', 'Clay', 'Iron', 'Crop'].forEach(r => {
-    const el = $(`#status-${r}`);
-    if (el) {
-      el.className = 'bonus-status busy';
-      el.textContent = 'Batch claim…';
-    }
+    paintBonusStatusEl($(`#status-${r}`), 'busy', 'Batch claim…');
   });
   $$('button.bonus').forEach(b => { b.disabled = true; });
 
@@ -437,11 +921,7 @@ async function handleClaimAllResources() {
       const ends = Date.now() + 8 * 60 * 60 * 1000;
       for (const r of data.claimed) {
         bonusCooldownEnds[r] = ends;
-        const el = $(`#status-${r}`);
-        if (el) {
-          el.className = 'bonus-status active';
-          el.textContent = 'Active — ~8:00:00 left';
-        }
+        paintClaimed($(`#status-${r}`), '08:00:00');
       }
     }
 
@@ -449,9 +929,12 @@ async function handleClaimAllResources() {
       if (data.claimedCount > 0) {
         resultEl.className = 'claim-all-result ok';
         resultEl.textContent = data.message || `Claimed ${data.claimed.join(', ')}`;
+      } else if (data.message && /shop|advantages|unreachable/i.test(data.message)) {
+        resultEl.className = 'claim-all-result bad';
+        resultEl.textContent = data.message;
       } else if (data.available && data.available.length === 0) {
         resultEl.className = 'claim-all-result warn';
-        resultEl.textContent = 'No claimable resource videos right now';
+        resultEl.textContent = 'No claimable resource videos right now — try Refresh all bonuses';
       } else {
         resultEl.className = 'claim-all-result bad';
         resultEl.textContent = data.message || 'Nothing claimed';
@@ -466,7 +949,7 @@ async function handleClaimAllResources() {
     btn.disabled = false;
     $$('button.bonus').forEach(b => { b.disabled = false; });
     fetchStatus();
-    await refreshAllBonuses({ quiet: true, force: true });
+    await refreshAllBonuses({ quiet: true, force: true, scope: 'resources' });
   }
 }
 
@@ -488,12 +971,12 @@ async function handleBonusClick(btn) {
       if (data.status === 'claimed') {
         // Video buff is ~8h; show optimistic active until poll confirms.
         bonusCooldownEnds[resourceKey] = Date.now() + 8 * 60 * 60 * 1000;
-        setBonusStatus(btn, 'active', 'Active — ~8:00:00 left');
+        setBonusStatus(btn, 'claimed', 'Claimed · 08:00:00 left');
       } else {
-        const el = $(`#status-${resourceKey}`);
-        if (el) {
-          el.className = `bonus-status ${data.status === 'unavailable' ? 'unavail' : 'failed'}`;
-          el.textContent = data.message || 'Failed';
+        if (data.status === 'unavailable') {
+          paintNotClaimed($(`#status-${resourceKey}`));
+        } else {
+          paintBonusStatusEl($(`#status-${resourceKey}`), 'failed', data.message || 'Failed');
         }
       }
     } else {
@@ -504,46 +987,49 @@ async function handleBonusClick(btn) {
   } finally {
     $$('button.bonus').forEach(b => { b.disabled = false; });
     fetchStatus();
-    await refreshAllBonuses({ quiet: true, force: true });
+    const scope = isResource ? 'resources' : 'hero';
+    await refreshAllBonuses({ quiet: true, force: true, scope });
   }
 }
 
 /* ----- Poll all bonus buttons (hero + resources) ----- */
 
 function applyBonusesPoll(data) {
-  const res = data.resources;
-  if (res?.statuses) {
-    for (const [resource, info] of Object.entries(res.statuses)) {
-      paintResourceStatus(resource, info);
-    }
-  } else {
-    ['Wood', 'Clay', 'Iron', 'Crop'].forEach(r => {
-      const el = $(`#status-${r}`);
-      if (el) {
-        el.className = 'bonus-status unavail';
-        el.textContent = res?.opened === false ? 'Shop unreachable' : 'Could not read';
+  if (data.resources) {
+    const res = data.resources;
+    if (res.statuses) {
+      for (const [resource, info] of Object.entries(res.statuses)) {
+        paintResourceStatus(resource, info);
       }
-    });
+    } else {
+      RESOURCE_BONUS_KEYS.forEach(r => {
+        paintBonusStatusEl(
+          $(`#status-${r}`),
+          'unavail',
+          res.opened === false ? 'Shop unreachable' : 'Could not read'
+        );
+      });
+    }
   }
 
-  const hero = data.hero;
-  if (hero?.ok) {
-    paintHeroBonusFromPoll('time', hero.time);
-    paintHeroBonusFromPoll('danger', hero.danger);
-  } else {
-    ['time', 'danger'].forEach(k => {
-      const el = $(`#status-${k}`);
-      if (el) {
-        el.className = 'bonus-status unavail';
-        el.textContent = 'Adventures unreachable';
-      }
-    });
+  if (data.hero) {
+    const hero = data.hero;
+    if (hero.ok) {
+      paintHeroBonusFromPoll('time', hero.time);
+      paintHeroBonusFromPoll('danger', hero.danger);
+    } else {
+      HERO_BONUS_KEYS.forEach(k => {
+        paintBonusStatusEl($(`#status-${k}`), 'unavail', 'Adventures unreachable');
+      });
+    }
   }
 }
 
 async function refreshAllBonuses(options = {}) {
   const quiet = options.quiet === true;
   const force = options.force === true;
+  const scope = options.scope === 'hero' || options.scope === 'resources' ? options.scope : 'all';
+  const keys = bonusKeysForScope(scope);
 
   if (refreshPromise) return refreshPromise;
 
@@ -553,32 +1039,28 @@ async function refreshAllBonuses(options = {}) {
       btn.disabled = true;
       btn.textContent = 'Checking…';
     }
-    if (!quiet || !bonusesSynced) setAllBonusStatusesPolling();
+    if (!quiet || !bonusesSynced) setAllBonusStatusesPolling(keys);
 
     try {
-      const url = force ? '/api/bonuses/status?force=1' : '/api/bonuses/status';
+      const params = new URLSearchParams();
+      if (force) params.set('force', '1');
+      if (scope !== 'all') params.set('scope', scope);
+      const qs = params.toString();
+      const url = qs ? `/api/bonuses/status?${qs}` : '/api/bonuses/status';
       const res = await fetch(url);
       const data = await res.json();
       if (!data.ok) {
-        BONUS_KEYS.forEach(k => {
-          const el = $(`#status-${k}`);
-          if (el) {
-            el.className = 'bonus-status unavail';
-            el.textContent = data.message || 'Not logged in';
-          }
+        keys.forEach(k => {
+          paintBonusStatusEl($(`#status-${k}`), 'unavail', data.message || 'Not logged in');
         });
         return;
       }
       applyBonusesPoll(data);
-      bonusesSynced = true;
+      if (scope === 'all') bonusesSynced = true;
     } catch (err) {
       console.error(err);
-      BONUS_KEYS.forEach(k => {
-        const el = $(`#status-${k}`);
-        if (el) {
-          el.className = 'bonus-status failed';
-          el.textContent = 'Network error';
-        }
+      keys.forEach(k => {
+        paintBonusStatusEl($(`#status-${k}`), 'failed', 'Network error');
       });
     } finally {
       if (!quiet && btn) {
@@ -604,15 +1086,12 @@ async function syncBonusesWhenReady() {
       const h = await res.json();
       if (h.loggedIn && !h.busy) {
         await refreshAllBonuses({ quiet: true });
+        await refreshAdventures({ quiet: true });
         return;
       }
       if (!h.loggedIn && attempt > 5) {
         BONUS_KEYS.forEach(k => {
-          const el = $(`#status-${k}`);
-          if (el) {
-            el.className = 'bonus-status unavail';
-            el.textContent = 'Waiting for login…';
-          }
+          paintBonusStatusEl($(`#status-${k}`), 'unavail', 'Waiting for login…');
         });
       }
     } catch {
@@ -636,12 +1115,10 @@ function tickBonusCountdowns() {
     if (!el) continue;
     const left = endsAt - now;
     if (left > 0) {
-      el.className = 'bonus-status active';
-      el.textContent = `Active — ${formatCountdown(left)} left`;
+      paintClaimed(el, formatCountdown(left));
     } else {
       delete bonusCooldownEnds[resource];
-      el.className = 'bonus-status claimed';
-      el.textContent = 'Claimable now';
+      paintNotClaimed(el);
     }
   }
 }
@@ -649,6 +1126,7 @@ function tickBonusCountdowns() {
 /* ----- Re-login + clear ----- */
 
 async function relogin() {
+  accountAutoRefreshAttempts = 0;
   const btn = $('#relogin');
   btn.disabled = true;
   try {
@@ -659,7 +1137,24 @@ async function relogin() {
     startupSyncStarted = false;
     fetchStatus();
     refreshHero(false);
+    refreshAdventures({ quiet: true });
     await syncBonusesWhenReady();
+  }
+}
+
+async function quitBot() {
+  const btn = $('#quit-bot');
+  if (!btn || btn.disabled) return;
+  const ok = window.confirm('Quit bot and close the GUI server now?');
+  if (!ok) return;
+
+  btn.disabled = true;
+  try {
+    await fetch('/api/quit', { method: 'POST' });
+    setText('#session-text', 'Shutting down...');
+  } catch {
+    btn.disabled = false;
+    setText('#session-text', 'Quit failed (network error)');
   }
 }
 
@@ -725,17 +1220,77 @@ document.addEventListener('click', ev => {
   if (action === 'bonus')                 handleBonusClick(btn);
   if (action === 'claim-all-resources')   handleClaimAllResources();
   if (action === 'refresh-hero')          refreshHero(true);
+  if (action === 'refresh-adventures')    refreshAdventures();
+  if (action === 'send-shortest-adventure') sendShortestAdventure();
   if (action === 'refresh-bonuses')       refreshAllBonuses({ force: true });
 });
 
 $('#relogin').addEventListener('click', relogin);
+$('#quit-bot')?.addEventListener('click', quitBot);
 $('#test-proxy')?.addEventListener('click', testProxy);
 $('#refresh-account')?.addEventListener('click', refreshAccount);
 $('#proxy-form')?.addEventListener('submit', saveProxyForm);
 $('#proxy-form')?.addEventListener('input', () => { proxyFormDirty = true; });
+$('#schedule-form')?.addEventListener('submit', saveScheduleForm);
+$('#schedule-form')?.addEventListener('input', () => { scheduleFormDirty = true; });
+$('#schedule-run-now')?.addEventListener('click', runSchedulerNow);
+$('#proxy-add-btn')?.addEventListener('click', addProxyFromInput);
+$('#proxy-add-input')?.addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') {
+    ev.preventDefault();
+    addProxyFromInput();
+  }
+});
+$('#proxy-rotation')?.addEventListener('change', () => {
+  proxyFormDirty = true;
+  updateProxyPoolMeta();
+  paintProxyListMarkers(
+    {
+      servers: collectProxyServersFromDom(),
+      serverIndex: 0,
+      enabled: $('#proxy-enabled')?.checked,
+      rotation: $('#proxy-rotation')?.value,
+    },
+    null
+  );
+});
 $('#clear-log').addEventListener('click', () => { logEl.innerHTML = ''; });
 
+const THEME_STORAGE_KEY = 'tbot-theme';
+
+function resolveTheme(pref) {
+  if (pref === 'light') return 'light';
+  if (pref === 'ocean') return 'ocean';
+  if (pref === 'peach') return 'peach';
+  if (pref === 'system') {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+  return 'dark';
+}
+
+function applyTheme(pref) {
+  localStorage.setItem(THEME_STORAGE_KEY, pref);
+  document.documentElement.dataset.themePref = pref;
+  document.documentElement.setAttribute('data-theme', resolveTheme(pref));
+  $$('.theme-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.themePref === pref);
+  });
+}
+
+function initTheme() {
+  const pref = localStorage.getItem(THEME_STORAGE_KEY) || document.documentElement.dataset.themePref || 'dark';
+  applyTheme(pref);
+  $$('.theme-btn').forEach(btn => {
+    btn.addEventListener('click', () => applyTheme(btn.dataset.themePref));
+  });
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (localStorage.getItem(THEME_STORAGE_KEY) === 'system') applyTheme('system');
+  });
+}
+
+initTheme();
 loadProxyForm();
+loadScheduleForm();
 
 setAllBonusStatusesPolling();
 fetchStatus();
