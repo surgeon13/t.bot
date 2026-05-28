@@ -59,6 +59,20 @@ const { getTotals } = require('./totals');
 const { getLastCompletedBonus, getLastCompletedBonuses } = require('./runState');
 const { scheduleGuiStatus, setEmbeddedSchedulerActive } = require('./scheduleState');
 const { runSchedulerLoop } = require('./scheduler');
+const {
+  farmListSettings,
+  sendNextFarmList,
+  openFarmListPage,
+  readFarmListsOnPage,
+} = require('./farmList');
+const {
+  farmListGuiStatus,
+  setEmbeddedFarmSchedulerActive,
+  writeFarmListState,
+  readFarmListState,
+  randomNextRunAt,
+} = require('./farmListState');
+const { runFarmListSchedulerLoop } = require('./farmListScheduler');
 
 const TAG = 'gui';
 const PORT = Number(process.env.PORT) || 3733;
@@ -198,6 +212,150 @@ function syncEmbeddedSchedulerAfterConfigSave(wasEnabled) {
   if (wasEnabled !== nowEnabled || !embeddedScheduleControl) {
     syncEmbeddedScheduler();
   }
+}
+
+/* --------------------------------------------------------------------- */
+/* Embedded farm list scheduler (round-robin, min–max minutes)            */
+/* --------------------------------------------------------------------- */
+
+/** @type {{ stop: boolean, runNow: boolean }|null} */
+let embeddedFarmControl = null;
+/** @type {Promise<{ reason: string }>|null} */
+let embeddedFarmTask = null;
+let embeddedFarmGen = 0;
+
+async function runFarmListSendViaGui() {
+  return lock.run('farmListRun', async () => {
+    try {
+      await ensureSession();
+      if (!loggedIn || !page || page.isClosed()) {
+        log.warn(TAG, 'Farm list send skipped: not logged in');
+        return { ok: false, message: 'Not logged in' };
+      }
+      if (!(await ensureGameShell(page, { tag: TAG }))) {
+        loggedIn = false;
+        return { ok: false, message: 'Game shell unreachable' };
+      }
+      return sendNextFarmList(page);
+    } catch (err) {
+      log.error(TAG, `Farm list send failed: ${err.message}`);
+      return { ok: false, status: 'failed', message: err.message };
+    }
+  });
+}
+
+function stopEmbeddedFarmScheduler() {
+  if (embeddedFarmControl) embeddedFarmControl.stop = true;
+}
+
+function syncEmbeddedFarmScheduler() {
+  embeddedFarmGen += 1;
+  const gen = embeddedFarmGen;
+  stopEmbeddedFarmScheduler();
+
+  const cfg = loadConfig();
+  const fl = farmListSettings(cfg);
+  if (process.env.GUI_NO_SCHEDULER === '1') {
+    embeddedFarmControl = null;
+    embeddedFarmTask = null;
+    setEmbeddedFarmSchedulerActive(false);
+    return;
+  }
+  if (!fl.enabled || !fl.lists.length) {
+    embeddedFarmControl = null;
+    embeddedFarmTask = null;
+    setEmbeddedFarmSchedulerActive(false);
+    return;
+  }
+
+  const control = { stop: false, runNow: false };
+  embeddedFarmControl = control;
+  setEmbeddedFarmSchedulerActive(true);
+  log.info(TAG, `Farm list scheduler started (${fl.lists.length} lists, ${fl.intervalMinutesMin}–${fl.intervalMinutesMax} min)`);
+
+  const st = readFarmListState();
+  if (!st?.nextRunAt || new Date(st.nextRunAt).getTime() > Date.now() + 60_000) {
+    writeFarmListState({
+      lastRunAt: st?.lastRunAt ?? null,
+      nextRunAt: new Date().toISOString(),
+      lastIndex: st?.lastIndex ?? 0,
+      lastListName: st?.lastListName ?? null,
+      intervalMinutesMin: fl.intervalMinutesMin,
+      intervalMinutesMax: fl.intervalMinutesMax,
+    });
+  }
+
+  embeddedFarmTask = runFarmListSchedulerLoop({
+    control,
+    executeRun: runFarmListSendViaGui,
+  })
+    .then(result => {
+      log.info(TAG, `Farm list scheduler stopped (${result.reason})`);
+      return result;
+    })
+    .catch(err => {
+      log.error(TAG, `Farm list scheduler error: ${err.message}`);
+    })
+    .finally(() => {
+      if (gen !== embeddedFarmGen) return;
+      embeddedFarmControl = null;
+      embeddedFarmTask = null;
+      setEmbeddedFarmSchedulerActive(false);
+      if (!guiShuttingDown && farmListSettings().enabled && farmListSettings().lists.length
+        && process.env.GUI_NO_SCHEDULER !== '1') {
+        log.warn(TAG, 'Farm list scheduler exited unexpectedly — restarting in 2s');
+        setTimeout(() => {
+          if (gen === embeddedFarmGen) syncEmbeddedFarmScheduler();
+        }, 2000);
+      }
+    });
+}
+
+function syncEmbeddedFarmSchedulerAfterConfigSave() {
+  syncEmbeddedFarmScheduler();
+}
+
+function farmListConfigForApi(cfg = loadConfig()) {
+  const fl = farmListSettings(cfg);
+  return {
+    enabled: fl.enabled,
+    lists: fl.lists,
+    listsText: fl.lists.join('\n'),
+    intervalMinutesMin: fl.intervalMinutesMin,
+    intervalMinutesMax: fl.intervalMinutesMax,
+  };
+}
+
+function applyFarmListConfigFromBody(cfg, body = {}) {
+  if (!cfg.farmList) {
+    cfg.farmList = { enabled: false, lists: [], intervalMinutesMin: 5, intervalMinutesMax: 15 };
+  }
+  if (typeof body.enabled === 'boolean') cfg.farmList.enabled = body.enabled;
+
+  if (body.lists != null) {
+    const raw = Array.isArray(body.lists)
+      ? body.lists
+      : String(body.listsText ?? body.lists ?? '').split(/\r?\n/);
+    cfg.farmList.lists = [...new Set(raw.map(s => String(s).trim()).filter(Boolean))];
+  } else if (body.listsText != null) {
+    cfg.farmList.lists = [...new Set(
+      String(body.listsText).split(/\r?\n/).map(s => s.trim()).filter(Boolean),
+    )];
+  }
+
+  if (body.intervalMinutesMin != null) {
+    const n = Number(body.intervalMinutesMin);
+    if (!Number.isNaN(n) && n >= 1) cfg.farmList.intervalMinutesMin = n;
+  }
+  if (body.intervalMinutesMax != null) {
+    const n = Number(body.intervalMinutesMax);
+    if (!Number.isNaN(n) && n >= 1) cfg.farmList.intervalMinutesMax = n;
+  }
+  const min = Math.max(1, Number(cfg.farmList.intervalMinutesMin) || 5);
+  const max = Math.max(min, Number(cfg.farmList.intervalMinutesMax) || 15);
+  cfg.farmList.intervalMinutesMin = min;
+  cfg.farmList.intervalMinutesMax = max;
+  return cfg;
 }
 
 /* --------------------------------------------------------------------- */
@@ -564,6 +722,8 @@ app.get('/api/status', async (_req, res) => {
     proxy: proxyPayloadForApi(),
     account: accountPayloadForApi(),
     proxyConfig: proxyConfigForApi(),
+    farmListConfig: farmListConfigForApi(cfg),
+    farmListStatus: farmListGuiStatus(cfg, readFarmListState()),
   });
 });
 
@@ -616,6 +776,87 @@ app.put('/api/config/schedule', (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }
+});
+
+app.get('/api/config/farm-list', (_req, res) => {
+  const cfg = loadConfig();
+  res.json({
+    ok: true,
+    farmList: farmListConfigForApi(cfg),
+    farmListStatus: farmListGuiStatus(cfg, readFarmListState()),
+  });
+});
+
+app.put('/api/config/farm-list', (req, res) => {
+  try {
+    const cfg = applyFarmListConfigFromBody(loadConfig(), req.body || {});
+    saveConfig(cfg);
+    syncEmbeddedFarmSchedulerAfterConfigSave();
+    const fl = farmListSettings(cfg);
+    res.json({
+      ok: true,
+      farmList: farmListConfigForApi(cfg),
+      farmListStatus: farmListGuiStatus(cfg, readFarmListState()),
+      message: fl.enabled && fl.lists.length
+        ? `Farm list saved. Round-robin across ${fl.lists.length} list(s), every ${fl.intervalMinutesMin}–${fl.intervalMinutesMax} min.`
+        : fl.enabled
+          ? 'Farm list enabled — add at least one list name and Save.'
+          : 'Farm list runner is off.',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+app.post('/api/farm-list/run-now', (_req, res) => {
+  const cfg = loadConfig();
+  const fl = farmListSettings(cfg);
+  if (!fl.enabled) {
+    return res.status(400).json({ ok: false, message: 'Turn on Farm list runner and Save first.' });
+  }
+  if (!fl.lists.length) {
+    return res.status(400).json({ ok: false, message: 'Add at least one farm list name and Save.' });
+  }
+  if (process.env.GUI_NO_SCHEDULER === '1') {
+    return res.status(400).json({
+      ok: false,
+      message: 'Embedded schedulers disabled (GUI_NO_SCHEDULER=1). Use Send next once.',
+    });
+  }
+  if (!embeddedFarmControl) syncEmbeddedFarmScheduler();
+  if (!embeddedFarmControl) {
+    return res.status(503).json({ ok: false, message: 'Farm list scheduler could not start. Check bot.log.' });
+  }
+  embeddedFarmControl.runNow = true;
+  log.info(TAG, 'Farm list run-now requested from GUI');
+  res.json({
+    ok: true,
+    message: 'Farm list send requested — starting as soon as possible.',
+    farmListStatus: farmListGuiStatus(cfg, readFarmListState()),
+  });
+});
+
+app.post('/api/farm-list/send-once', async (_req, res) => {
+  const fl = farmListSettings();
+  if (!fl.lists.length) {
+    return res.status(400).json({ ok: false, message: 'Add at least one farm list name in config.' });
+  }
+  const result = await runFarmListSendViaGui();
+  res.json({
+    ...result,
+    farmListStatus: farmListGuiStatus(loadConfig(), readFarmListState()),
+  });
+});
+
+app.get('/api/farm-list/discover', async (_req, res) => {
+  const result = await withSession('farmListDiscover', async (p) => {
+    if (!(await openFarmListPage(p))) {
+      return { ok: false, message: 'Farm list page not reachable' };
+    }
+    const lists = await readFarmListsOnPage(p);
+    return { ok: true, lists };
+  });
+  res.json(result);
 });
 
 app.post('/api/schedule/run-now', (_req, res) => {
@@ -1139,6 +1380,7 @@ const server = app.listen(PORT, HOST, async () => {
     log.error(TAG, `Startup login failed: ${err.message}`);
   }
   syncEmbeddedScheduler();
+  syncEmbeddedFarmScheduler();
   if (process.env.OPEN_BROWSER !== '0') {
     openInBrowser(`http://${HOST}:${PORT}`);
   }
@@ -1173,8 +1415,12 @@ async function shutdown() {
   guiShuttingDown = true;
   log.info(TAG, 'Shutting down GUI');
   stopEmbeddedScheduler();
+  stopEmbeddedFarmScheduler();
   if (embeddedScheduleTask) {
     try { await embeddedScheduleTask; } catch { /* already logged */ }
+  }
+  if (embeddedFarmTask) {
+    try { await embeddedFarmTask; } catch { /* already logged */ }
   }
   try { server.close(); } catch {}
   await closeSession();

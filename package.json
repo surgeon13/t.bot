@@ -1,6 +1,6 @@
 {
   "name": "t.bot",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Travian helper: claim hero and resource video bonuses via Playwright.",
   "main": "menu.js",
   "scripts": {

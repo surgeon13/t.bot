@@ -1,6 +1,6 @@
 # Architecture
 
-High-level map of **t.bot v0.9.3** (Node.js, CommonJS, Playwright).
+High-level map of **t.bot v0.9.4** (Node.js, CommonJS, Playwright).
 
 ```mermaid
 flowchart LR
@@ -109,6 +109,9 @@ The GUI keeps one `browser` + `context` + `page` and serializes actions with `Ac
 | Module | Role |
 |--------|------|
 | `paths.js` | `ROOT`, `data/`, `debug/`, config paths; migrates legacy root state files |
+| `farmList.js` | Open farm list page, round-robin send by list name |
+| `farmListState.js` | `farm-list-state.json`, GUI status, random next-run time |
+| `farmListScheduler.js` | Min–max minute wait loop for farm sends |
 | `logger.js` | Console + `data/bot.log` + SSE subscribers |
 | `utils.js` | `randomDelay()` from config |
 | `terminalControl.js` | `status` / `stop` / `run` during tasks |

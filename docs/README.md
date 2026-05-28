@@ -1,6 +1,6 @@
 # t.bot documentation
 
-**Version 0.9.3**
+**Version 0.9.4**
 
 This folder contains detailed guides. For a quick start, see the [main README](../README.md).
 
@@ -10,6 +10,7 @@ This folder contains detailed guides. For a quick start, see the [main README](.
 | [Scheduler](scheduler.md) | `npm run schedule`, intervals, terminal commands |
 | [Web GUI](gui.md) | `npm run gui`, buttons, API, environment variables |
 | [Resource bonuses](resource-bonuses.md) | Shop flow, claimable vs active, batch claim |
+| [Farm list runner](farm-list.md) | Round-robin farm list sends, min–max minutes |
 | [Troubleshooting](troubleshooting.md) | Login, videos, headless, debug snapshots |
 | [Architecture](architecture.md) | Module map and data flow |
 

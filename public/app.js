@@ -73,6 +73,8 @@ function paintStatus(s) {
 
   if (s.scheduleStatus) paintScheduleStatus(s.scheduleStatus);
   if (s.scheduleConfig && !scheduleFormDirty) fillScheduleForm(s.scheduleConfig);
+  if (s.farmListStatus) paintFarmListStatus(s.farmListStatus);
+  if (s.farmListConfig && !farmListFormDirty) fillFarmListForm(s.farmListConfig);
 
   if (s.totals) {
     setText('#t-time', s.totals.heroTimeBonuses);
@@ -99,6 +101,7 @@ function paintStatus(s) {
 
 let proxyFormDirty = false;
 let scheduleFormDirty = false;
+let farmListFormDirty = false;
 let accountAutoRefreshTimer = null;
 let accountAutoRefreshAttempts = 0;
 
@@ -251,6 +254,212 @@ async function loadScheduleForm() {
     const data = await res.json();
     if (data.schedule && !scheduleFormDirty) fillScheduleForm(data.schedule);
     if (data.scheduleStatus) paintScheduleStatus(data.scheduleStatus);
+  } catch {
+    /* server starting */
+  }
+}
+
+function paintFarmListStatus(st) {
+  const dot = $('#farm-list-dot');
+  const txt = $('#farm-list-status-text');
+  const line = $('#farm-list-next-line');
+  if (!dot || !txt) return;
+
+  if (st.enabled && st.schedulerRunning) {
+    dot.className = 'farm-list-dot on';
+    txt.textContent = st.listCount ? `Runner ON · ${st.listCount} list(s)` : 'Runner ON — add lists';
+  } else if (st.enabled) {
+    dot.className = 'farm-list-dot warn';
+    txt.textContent = 'Runner ON — timer not running';
+  } else {
+    dot.className = 'farm-list-dot off';
+    txt.textContent = 'Runner OFF';
+  }
+
+  if (line) {
+    if (st.nextListName) {
+      line.textContent = st.statusLine
+        ? `${st.statusLine} · next: "${st.nextListName}"`
+        : `Next list: "${st.nextListName}"`;
+    } else {
+      line.textContent = st.statusLine || '—';
+    }
+  }
+
+  updateFarmListRunNowButton(st);
+}
+
+function updateFarmListRunNowButton(st) {
+  const btn = $('#farm-list-run-now');
+  if (!btn) return;
+  const on = !!st?.enabled && (st.listCount > 0);
+  btn.disabled = !on;
+  btn.title = on
+    ? 'Trigger the next farm list send as soon as possible'
+    : 'Turn on Runner, add list names, and Save first';
+}
+
+function fillFarmListForm(cfg) {
+  if (!cfg) return;
+  const en = $('#farm-list-enabled');
+  const min = $('#farm-list-min');
+  const max = $('#farm-list-max');
+  const names = $('#farm-list-names');
+  if (en) en.checked = !!cfg.enabled;
+  if (min) min.value = String(cfg.intervalMinutesMin ?? 5);
+  if (max) max.value = String(cfg.intervalMinutesMax ?? 15);
+  if (names) names.value = cfg.listsText || (cfg.lists || []).join('\n');
+}
+
+function collectFarmListForm() {
+  return {
+    enabled: !!$('#farm-list-enabled')?.checked,
+    listsText: $('#farm-list-names')?.value ?? '',
+    intervalMinutesMin: Number($('#farm-list-min')?.value) || 5,
+    intervalMinutesMax: Number($('#farm-list-max')?.value) || 15,
+  };
+}
+
+async function saveFarmListForm(ev) {
+  ev.preventDefault();
+  const hint = $('#farm-list-save-hint');
+  const btn = $('#farm-list-form')?.querySelector('button[type="submit"]');
+  if (btn) btn.disabled = true;
+  if (hint) {
+    hint.className = 'farm-list-hint muted';
+    hint.textContent = 'Saving…';
+  }
+
+  try {
+    const res = await fetch('/api/config/farm-list', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectFarmListForm()),
+    });
+    const data = await parseApiJson(res);
+    if (!data.ok) throw new Error(data.message || 'Save failed');
+
+    farmListFormDirty = false;
+    if (data.farmList) fillFarmListForm(data.farmList);
+    if (data.farmListStatus) paintFarmListStatus(data.farmListStatus);
+    if (hint) {
+      hint.className = 'farm-list-hint ok';
+      hint.textContent = data.message || 'Farm list settings saved';
+    }
+    fetchStatus();
+  } catch (err) {
+    if (hint) {
+      hint.className = 'farm-list-hint fail';
+      hint.textContent = err.message || 'Could not save farm list settings';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runFarmListNow() {
+  const btn = $('#farm-list-run-now');
+  const hint = $('#farm-list-save-hint');
+  if (btn) btn.disabled = true;
+  if (hint) {
+    hint.className = 'farm-list-hint muted';
+    hint.textContent = 'Queueing farm list send…';
+  }
+
+  try {
+    const res = await fetch('/api/farm-list/run-now', { method: 'POST' });
+    const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || 'Run now failed');
+    if (data.farmListStatus) paintFarmListStatus(data.farmListStatus);
+    if (hint) {
+      hint.className = 'farm-list-hint ok';
+      hint.textContent = data.message || 'Farm list send requested';
+    }
+    fetchStatus();
+  } catch (err) {
+    if (hint) {
+      hint.className = 'farm-list-hint fail';
+      hint.textContent = err.message || 'Could not queue farm list send';
+    }
+    loadFarmListForm();
+  } finally {
+    updateFarmListRunNowButton({
+      enabled: !!$('#farm-list-enabled')?.checked,
+      listCount: ($('#farm-list-names')?.value || '').split(/\n/).filter(s => s.trim()).length,
+    });
+  }
+}
+
+async function sendFarmListOnce() {
+  const btn = $('#farm-list-send-once');
+  const hint = $('#farm-list-save-hint');
+  if (btn) btn.disabled = true;
+  if (hint) {
+    hint.className = 'farm-list-hint muted';
+    hint.textContent = 'Sending next farm list…';
+  }
+
+  try {
+    const res = await fetch('/api/farm-list/send-once', { method: 'POST' });
+    const data = await parseApiJson(res);
+    if (data.farmListStatus) paintFarmListStatus(data.farmListStatus);
+    if (hint) {
+      hint.className = data.ok ? 'farm-list-hint ok' : 'farm-list-hint fail';
+      hint.textContent = data.message || (data.ok ? `Sent "${data.listName}"` : 'Send failed');
+    }
+    fetchStatus();
+  } catch (err) {
+    if (hint) {
+      hint.className = 'farm-list-hint fail';
+      hint.textContent = err.message || 'Network error';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function discoverFarmLists() {
+  const btn = $('#farm-list-discover');
+  const hint = $('#farm-list-save-hint');
+  if (btn) btn.disabled = true;
+  if (hint) {
+    hint.className = 'farm-list-hint muted';
+    hint.textContent = 'Opening farm list page…';
+  }
+
+  try {
+    const res = await fetch('/api/farm-list/discover');
+    const data = await parseApiJson(res);
+    if (!data.ok) throw new Error(data.message || 'Discover failed');
+    const names = data.lists || [];
+    if (names.length && $('#farm-list-names')) {
+      const area = $('#farm-list-names');
+      const existing = area.value.trim();
+      area.value = existing ? `${existing}\n${names.join('\n')}` : names.join('\n');
+      farmListFormDirty = true;
+    }
+    if (hint) {
+      hint.className = 'farm-list-hint ok';
+      hint.textContent = names.length
+        ? `Found ${names.length} name(s) on page — review and Save`
+        : 'No list names detected — enter names manually';
+    }
+  } catch (err) {
+    if (hint) {
+      hint.className = 'farm-list-hint fail';
+      hint.textContent = err.message || 'Discover failed';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function loadFarmListForm() {
+  try {
+    const res = await fetch('/api/config/farm-list');
+    const data = await res.json();
+    if (data.farmList && !farmListFormDirty) fillFarmListForm(data.farmList);
+    if (data.farmListStatus) paintFarmListStatus(data.farmListStatus);
   } catch {
     /* server starting */
   }
@@ -1203,6 +1412,9 @@ function startLogStream() {
         fetchStatus();
         scheduleBonusRefreshFromLog();
       }
+      if (/farmList|farm list/i.test(msg)) {
+        fetchStatus();
+      }
     } catch { /* ignore malformed */ }
   };
   es.onerror = () => {
@@ -1234,6 +1446,11 @@ $('#proxy-form')?.addEventListener('input', () => { proxyFormDirty = true; });
 $('#schedule-form')?.addEventListener('submit', saveScheduleForm);
 $('#schedule-form')?.addEventListener('input', () => { scheduleFormDirty = true; });
 $('#schedule-run-now')?.addEventListener('click', runSchedulerNow);
+$('#farm-list-form')?.addEventListener('submit', saveFarmListForm);
+$('#farm-list-form')?.addEventListener('input', () => { farmListFormDirty = true; });
+$('#farm-list-run-now')?.addEventListener('click', runFarmListNow);
+$('#farm-list-send-once')?.addEventListener('click', sendFarmListOnce);
+$('#farm-list-discover')?.addEventListener('click', discoverFarmLists);
 $('#proxy-add-btn')?.addEventListener('click', addProxyFromInput);
 $('#proxy-add-input')?.addEventListener('keydown', ev => {
   if (ev.key === 'Enter') {
@@ -1291,6 +1508,7 @@ function initTheme() {
 initTheme();
 loadProxyForm();
 loadScheduleForm();
+loadFarmListForm();
 
 setAllBonusStatusesPolling();
 fetchStatus();

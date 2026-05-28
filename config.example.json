@@ -28,5 +28,14 @@
   "resourceBonuses": {
     "enabled": false,
     "intervalHours": 8
+  },
+  "farmList": {
+    "enabled": false,
+    "lists": [
+      "Farm 1",
+      "Farm 2"
+    ],
+    "intervalMinutesMin": 5,
+    "intervalMinutesMax": 15
   }
 }

@@ -1,6 +1,6 @@
 # t.bot
 
-**Version 0.9.3**
+**Version 0.9.4**
 
 Node.js + [Playwright](https://playwright.dev/) helper for **Travian Legends** video bonuses: hero adventure **time** and **danger** reductions, plus **+15%** Wood / Clay / Iron / Crop production from the shop **Advantages** tab.
 
@@ -10,7 +10,7 @@ The bot watches the required video ads and clicks through Travian’s dialogs. T
 
 ## Features (0.9.3)
 
-- **Web GUI** — per-bonus buttons, hero stats, adventures list, live log, **Claim all available resources**, **Quit bot**
+- **Web GUI** — per-bonus buttons, hero stats, adventures list, **farm list round-robin**, live log, **Claim all available resources**, **Quit bot**
 - **Embedded scheduler** — periodic runs inside the GUI process (or `npm run schedule` in a second terminal)
 - **Proxy pool** — multiple servers with round-robin / random / sticky rotation
 - **GUI themes** — Dark, Light, Ocean, Peach, Auto
@@ -28,6 +28,7 @@ The bot watches the required video ads and clicks through Travian’s dialogs. T
 | `config.json` options | [docs/configuration.md](docs/configuration.md) |
 | Periodic scheduler | [docs/scheduler.md](docs/scheduler.md) |
 | Web GUI & API | [docs/gui.md](docs/gui.md) |
+| Farm list runner | [docs/farm-list.md](docs/farm-list.md) |
 | Resource +15% bonuses | [docs/resource-bonuses.md](docs/resource-bonuses.md) |
 | Login, videos, headless | [docs/troubleshooting.md](docs/troubleshooting.md) |
 | Module map | [docs/architecture.md](docs/architecture.md) |

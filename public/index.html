@@ -284,15 +284,54 @@
         </div>
       </section>
 
+    <section class="card farm-list-card" id="farm-list-panel">
+        <header class="card-header">
+          <h2>Farm lists</h2>
+          <div class="card-actions">
+            <span class="farm-list-dot" id="farm-list-dot" aria-hidden="true"></span>
+            <span class="muted farm-list-status-text" id="farm-list-status-text">—</span>
+          </div>
+        </header>
+        <form id="farm-list-form" class="farm-list-form" autocomplete="off">
+          <p class="farm-list-lead muted">
+            Round-robin: opens rally farm list (gid=16, tt=99), presses Start for each list name in turn.
+            Wait time between sends is random between min and max minutes.
+          </p>
+          <div class="farm-list-fields-row">
+            <label class="proxy-check" title="Run farm list sends on a timer in the background">
+              <input type="checkbox" id="farm-list-enabled" name="enabled" />
+              <span>Runner ON</span>
+            </label>
+            <label class="schedule-interval-lbl">
+              <span>Min</span>
+              <input class="proxy-inp schedule-hours" type="number" id="farm-list-min" name="intervalMinutesMin" min="1" step="1" value="5" title="Minimum minutes until next send" />
+              <span>min</span>
+            </label>
+            <label class="schedule-interval-lbl">
+              <span>Max</span>
+              <input class="proxy-inp schedule-hours" type="number" id="farm-list-max" name="intervalMinutesMax" min="1" step="1" value="15" title="Maximum minutes until next send" />
+              <span>min</span>
+            </label>
+            <button type="button" id="farm-list-discover" class="ghost proxy-btn-sm" title="Read list names visible on the farm list page">Discover</button>
+            <button type="submit" class="proxy-save proxy-btn-sm">Save</button>
+            <button type="button" id="farm-list-run-now" class="ghost proxy-btn-sm" title="Send the next list as soon as possible">Run now</button>
+            <button type="button" id="farm-list-send-once" class="ghost proxy-btn-sm" title="Send one list now (does not require timer)">Send next</button>
+          </div>
+          <label class="farm-list-names-lbl" for="farm-list-names">List names (one per line, must match Travian)</label>
+          <textarea id="farm-list-names" class="farm-list-names" name="listsText" rows="4" placeholder="Farm 1&#10;Farm 2&#10;Farm 3"></textarea>
+          <p class="farm-list-line muted" id="farm-list-next-line">—</p>
+          <p class="farm-list-hint muted" id="farm-list-save-hint">Save — uses the green farm list button on the village screen</p>
+        </form>
+      </section>
+
     <section class="card extensions-card" id="extensions">
         <header class="card-header">
           <h2>Extensions</h2>
-          <div class="card-actions"><span class="muted">space for improvements</span></div>
+          <div class="card-actions"><span class="muted">coming later</span></div>
         </header>
         <ul class="extensions-list">
           <li class="placeholder">Build queue manager</li>
           <li class="placeholder">Troop training queue</li>
-          <li class="placeholder">Farm list runner</li>
           <li class="placeholder">Marketplace exchange</li>
           <li class="placeholder">Multi-account profiles</li>
         </ul>

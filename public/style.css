@@ -932,6 +932,64 @@ button.ghost.adventures-send-btn:hover:not([disabled]) {
   font-weight: 600;
 }
 
+/* ---------------- Farm list card ---------------- */
+.farm-list-card { grid-column: 2; grid-row: 2; }
+.farm-list-form {
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.farm-list-lead {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.farm-list-fields-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.farm-list-names-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.farm-list-names {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.farm-list-names:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.farm-list-line { margin: 0; font-size: 12px; }
+.farm-list-hint { margin: 0; font-size: 11px; }
+.farm-list-hint.ok { color: var(--good); }
+.farm-list-hint.fail { color: var(--bad); }
+.farm-list-status-text { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.farm-list-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-mute);
+  flex-shrink: 0;
+}
+.farm-list-dot.on { background: var(--good); }
+.farm-list-dot.off { background: var(--text-mute); }
+.farm-list-dot.warn { background: var(--warn); }
+
 /* ---------------- Bonus card ---------------- */
 .bonus-card { grid-column: 2; grid-row: 1; }
 .bonus-grid {
@@ -1123,7 +1181,7 @@ button.bonus.res-crop:hover  { border-color: #facc15; }
 /* ---------------- Small screens ---------------- */
 @media (max-width: 900px) {
   main { grid-template-columns: 1fr; }
-  .hero-card, .bonus-card, .extensions-card, .log-card {
+  .hero-card, .bonus-card, .farm-list-card, .extensions-card, .log-card {
     grid-column: 1;
     grid-row: auto;
   }

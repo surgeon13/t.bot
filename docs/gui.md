@@ -152,9 +152,21 @@ Shows how many times each **video bonus was successfully watched** by t.bot on t
 
 Server-sent events stream from `bot.log` (and in-memory buffer). Successful bonus lines trigger a quiet status refresh after a few seconds.
 
+### Farm lists
+
+Round-robin farm list sends with a random delay between **min** and **max** minutes. See **[farm-list.md](farm-list.md)** for config keys and API routes.
+
+| Control | Action |
+|---------|--------|
+| **Runner ON** | Enable background timer |
+| **Discover** | Read list names from the farm list page |
+| **Save** | Persist `farmList` in `config.json` |
+| **Run now** | Queue next send |
+| **Send next** | Immediate one-shot send |
+
 ### Extensions
 
-Placeholder section in `public/index.html` for future features.
+Placeholder section for future features (build queue, marketplace, etc.).
 
 ## Environment variables
 
@@ -200,6 +212,12 @@ All `POST` bonus routes clear the bonus poll cache and run under a mutex (queue 
 | `POST` | `/api/bonus/resource/:name` | `Wood`, `Clay`, `Iron`, or `Crop` |
 | `POST` | `/api/bonus/resources/claim-all` | Batch resource videos |
 | `POST` | `/api/relogin` | Close session and log in again |
+| `POST` | `/api/quit` | Graceful shutdown |
+| `GET` | `/api/config/farm-list` | Farm list settings + timer status |
+| `PUT` | `/api/config/farm-list` | Save farm list settings |
+| `POST` | `/api/farm-list/run-now` | Queue next farm list send |
+| `POST` | `/api/farm-list/send-once` | Send next list immediately |
+| `GET` | `/api/farm-list/discover` | Read list names from farm list page |
 | `GET` | `/api/log/stream` | SSE log stream |
 
 Debug (read-only, for development):

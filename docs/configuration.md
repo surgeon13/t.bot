@@ -108,6 +108,17 @@ Used by **`npm run schedule`** and shown in the menu when enabled. See **[schedu
 
 The scheduler can wake **earlier** if `resourceBonuses` is enabled and `resource-bonus-state.json` says the next resource run is sooner.
 
+### Farm list runner (`farmList`)
+
+See **[farm-list.md](farm-list.md)** for GUI usage.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `farmList.enabled` | boolean | `false` | Enable round-robin farm list sends in the GUI. |
+| `farmList.lists` | string[] | `[]` | Farm list names as shown in Travian. |
+| `farmList.intervalMinutesMin` | number | `5` | Minimum minutes until the next send. |
+| `farmList.intervalMinutesMax` | number | `15` | Maximum minutes (random delay in range). |
+
 ### Resource bonuses (`resourceBonuses`)
 
 | Key | Type | Default | Description |
@@ -149,6 +160,10 @@ If no claimable videos were found, the bot may retry sooner (about **30 minutes*
 ### `data/schedule-state.json`
 
 Updated by `scheduler.js` for the menu’s “next run” line. Safe to delete; it will be recreated.
+
+### `data/farm-list-state.json`
+
+Written by `farmList.js` / `farmListState.js` when the farm list runner is used. Tracks round-robin index, last list sent, and `nextRunAt` for the GUI status line.
 
 ## Menu settings (`npm start` → **S**)
 

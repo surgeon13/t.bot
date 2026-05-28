@@ -6,6 +6,15 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 
 _(nothing yet)_
 
+## 0.9.4 — 2026-05-28
+
+### Added
+
+- **Farm list round-robin** — GUI panel, `farmList` config, embedded timer with random **min–max** minutes between sends.
+- Opens rally farm list (`gid=16&tt=99`) via the green **RallyPointFarmList** village button.
+- **Discover**, **Send next**, **Run now**; state in `data/farm-list-state.json`.
+- Docs: [docs/farm-list.md](docs/farm-list.md).
+
 ## 0.9.3 — 2026-05-28
 
 ### Added

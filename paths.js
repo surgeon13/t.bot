@@ -25,6 +25,7 @@ const SCHEDULE_STATE_FILE = path.join(DATA_DIR, 'schedule-state.json');
 const RESOURCE_BONUS_STATE_FILE = path.join(DATA_DIR, 'resource-bonus-state.json');
 const TOTALS_STATE_FILE = path.join(DATA_DIR, 'totals-state.json');
 const PROXY_ROTATION_STATE_FILE = path.join(DATA_DIR, 'proxy-rotation-state.json');
+const FARM_LIST_STATE_FILE = path.join(DATA_DIR, 'farm-list-state.json');
 
 /** Zip / docs folder name (not version-suffixed). */
 const PACKAGE_FOLDER_NAME = 't.bot';
@@ -35,6 +36,7 @@ const LEGACY_ROOT_FILES = [
   ['resource-bonus-state.json', RESOURCE_BONUS_STATE_FILE],
   ['totals-state.json', TOTALS_STATE_FILE],
   ['proxy-rotation-state.json', PROXY_ROTATION_STATE_FILE],
+  ['farm-list-state.json', FARM_LIST_STATE_FILE],
 ];
 
 function ensureDir(dir) {
@@ -71,6 +73,7 @@ module.exports = {
   RESOURCE_BONUS_STATE_FILE,
   TOTALS_STATE_FILE,
   PROXY_ROTATION_STATE_FILE,
+  FARM_LIST_STATE_FILE,
   PACKAGE_FOLDER_NAME,
   migrateLegacyRootFiles,
 };
