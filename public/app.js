@@ -1048,12 +1048,17 @@ async function testProxy() {
 
 async function refreshHero(deep = true) {
   setText('#hero-name', 'Loading…');
+  setText('#hero-toggle-meta', deep ? 'Loading stats…' : 'HP — · Adv —');
   try {
     const res = await fetch(`/api/hero?deep=${deep ? 1 : 0}`);
     const h = await res.json();
     paintHero(h);
+    if (deep && h && !h.deep) {
+      setText('#hero-toggle-meta', 'Stats unavailable — click ↻');
+    }
   } catch (err) {
     setText('#hero-name', '—');
+    setText('#hero-toggle-meta', 'Could not load hero');
     console.error(err);
   }
   refreshAdventures({ quiet: true });
@@ -1288,10 +1293,11 @@ async function sendShortestAdventure() {
 }
 
 function paintHero(h) {
-  const q = h && h.quick ? h.quick : {};
-  const d = h && h.deep  ? h.deep  : {};
+  if (!h) return;
+  const q = h.quick || {};
+  const d = h.deep || {};
 
-  const name = d.name || 'Hero';
+  const name = d.name || q.heroName || 'Hero';
   const badge = d.adventureBadge || q.adventureBadge || '0';
   setText('#hero-name', name);
   setText('#hero-badge', badge);
@@ -1628,7 +1634,7 @@ async function syncBonusesWhenReady() {
       const h = await res.json();
       if (h.loggedIn && !h.busy) {
         await refreshAllBonuses({ quiet: true });
-        await refreshAdventures({ quiet: true });
+        await refreshHero(true);
         return;
       }
       if (!h.loggedIn && attempt > 5) {
@@ -1678,8 +1684,7 @@ async function relogin() {
     bonusesSynced = false;
     startupSyncStarted = false;
     fetchStatus();
-    refreshHero(false);
-    refreshAdventures({ quiet: true });
+    refreshHero(true);
     await syncBonusesWhenReady();
   }
 }
@@ -1902,7 +1907,7 @@ setInterval(checkGuiServerCapabilities, 30000);
 
 setAllBonusStatusesPolling();
 fetchStatus();
-refreshHero(false);
+refreshHero(true);
 syncBonusesWhenReady();
 startLogStream();
 setInterval(fetchStatus, 5000);
