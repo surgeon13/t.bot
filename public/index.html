@@ -53,15 +53,17 @@
         <span class="account-lbl">Login</span>
         <span class="account-val" id="acc-login">—</span>
       </div>
-      <div class="account-item">
-        <span class="account-lbl">IP</span>
+      <div class="account-item account-item-ip">
+        <span class="account-lbl" id="acc-ip-lbl">Outbound IP</span>
         <span class="account-val mono" id="acc-ip">—</span>
+        <span class="account-ip-sub muted" id="acc-ip-sub" hidden></span>
       </div>
       <button type="button" id="refresh-account" class="ghost" title="Refresh player name and IP">Refresh</button>
     </div>
+  </div>
 
-    <div class="account-bar-scheduler">
-      <section class="schedule-panel schedule-panel--inline" id="schedule-panel">
+  <div class="scheduler-row" id="scheduler-row">
+      <section class="schedule-panel" id="schedule-panel">
         <form id="schedule-form" class="schedule-form schedule-form--inline" autocomplete="off">
           <div class="schedule-inline-head">
             <span class="proxy-bar-label">Scheduler</span>
@@ -90,10 +92,85 @@
             <button type="submit" class="proxy-save schedule-save proxy-btn-sm">Save</button>
             <button type="button" id="schedule-run-now" class="ghost proxy-btn-sm schedule-run-now" title="Start the next full bonus claim cycle now">Run now</button>
           </div>
+          <div class="schedule-fields-row schedule-fields-row--inline work-sleep-row">
+            <label class="proxy-check" title="Alternate work and sleep windows; timers pause during sleep">
+              <input type="checkbox" id="work-sleep-enabled" name="enabled" />
+              <span>Work/sleep</span>
+            </label>
+            <span class="work-sleep-lbl muted">Work</span>
+            <label class="schedule-interval-lbl" title="Minimum work window (minutes)">
+              <input class="proxy-inp schedule-hours" type="number" id="work-sleep-work-min" min="1" step="1" value="30" />
+              <span>–</span>
+            </label>
+            <label class="schedule-interval-lbl" title="Maximum work window (minutes)">
+              <input class="proxy-inp schedule-hours" type="number" id="work-sleep-work-max" min="1" step="1" value="60" />
+              <span>min</span>
+            </label>
+            <span class="work-sleep-lbl muted">Sleep</span>
+            <label class="schedule-interval-lbl" title="Minimum sleep window (minutes)">
+              <input class="proxy-inp schedule-hours" type="number" id="work-sleep-sleep-min" min="1" step="1" value="15" />
+              <span>–</span>
+            </label>
+            <label class="schedule-interval-lbl" title="Maximum sleep window (minutes)">
+              <input class="proxy-inp schedule-hours" type="number" id="work-sleep-sleep-max" min="1" step="1" value="45" />
+              <span>min</span>
+            </label>
+            <button type="button" id="work-sleep-save" class="proxy-save proxy-btn-sm">Save</button>
+          </div>
+          <div class="schedule-fields-row schedule-fields-row--inline work-sleep-row micro-pause-row">
+            <label class="proxy-check" title="Short random stops; farm list + schedulers pause strictly during each stop">
+              <input type="checkbox" id="micro-pause-enabled" name="enabled" />
+              <span>Random stops</span>
+            </label>
+            <span class="work-sleep-lbl muted">Stop</span>
+            <label class="schedule-interval-lbl" title="Minimum stop length (minutes)">
+              <input class="proxy-inp schedule-hours" type="number" id="micro-pause-min" min="1" step="1" value="2" />
+              <span>–</span>
+            </label>
+            <label class="schedule-interval-lbl" title="Maximum stop length (minutes)">
+              <input class="proxy-inp schedule-hours" type="number" id="micro-pause-max" min="1" step="1" value="5" />
+              <span>min</span>
+            </label>
+            <span class="work-sleep-lbl muted">Every</span>
+            <label class="schedule-interval-lbl" title="Minimum minutes between stops">
+              <input class="proxy-inp schedule-hours" type="number" id="micro-pause-interval-min" min="1" step="1" value="20" />
+              <span>–</span>
+            </label>
+            <label class="schedule-interval-lbl" title="Maximum minutes between stops">
+              <input class="proxy-inp schedule-hours" type="number" id="micro-pause-interval-max" min="1" step="1" value="45" />
+              <span>min</span>
+            </label>
+            <button type="button" id="micro-pause-save" class="proxy-save proxy-btn-sm">Save</button>
+          </div>
         </form>
+        <div class="schedule-status-footer">
+          <span class="schedule-status-chip muted" id="work-sleep-status-line">—</span>
+          <span class="schedule-status-chip muted" id="micro-pause-status-line">—</span>
+        </div>
         <p class="schedule-hint muted" id="schedule-save-hint">Save — checks hero/resources on the timer; hero videos only when not already active (~8h)</p>
+        <p class="schedule-hint muted" id="work-sleep-save-hint">Work/sleep — random work window, then random sleep; farm list + schedulers pause while sleeping</p>
+        <p class="schedule-hint muted" id="micro-pause-save-hint">Random stops — brief strict pauses between runs; manual actions still work</p>
       </section>
-    </div>
+  </div>
+
+  <div class="daily-schedule-row" id="daily-schedule-row">
+    <section class="daily-schedule-panel" id="daily-schedule-panel">
+      <form id="daily-schedule-form" class="daily-schedule-form" autocomplete="off">
+        <div class="daily-schedule-head">
+          <span class="proxy-bar-label">Daily schedule</span>
+          <span class="daily-schedule-dot" id="daily-schedule-dot" aria-hidden="true"></span>
+          <span class="daily-schedule-status-text" id="daily-schedule-status-text">—</span>
+          <label class="proxy-check daily-schedule-master" title="Only run farm list and bonus timers in enabled half-hour slots">
+            <input type="checkbox" id="daily-schedule-enabled" name="enabled" />
+            <span>ON</span>
+          </label>
+          <button type="button" id="daily-schedule-save" class="proxy-save proxy-btn-sm">Save</button>
+        </div>
+        <p class="daily-schedule-hint muted">Local time · 00–23 · :00/:30 toggles · proxy Off=direct, P1/P2=that proxy for the hour</p>
+        <div class="daily-schedule-grid" id="daily-schedule-grid" role="group" aria-label="Daily hour schedule"></div>
+        <p class="daily-schedule-hint muted" id="daily-schedule-save-hint">Save — schedulers pause outside enabled slots</p>
+      </form>
+    </section>
   </div>
 
   <div class="proxy-totals-row">
@@ -105,6 +182,7 @@
               <span class="proxy-dot" id="proxy-dot" aria-hidden="true"></span>
               <span class="proxy-status-text" id="proxy-status-text">—</span>
               <button type="button" id="test-proxy" class="ghost proxy-btn-sm" title="Test active proxy">Test</button>
+              <button type="button" id="proxy-reload" class="ghost proxy-btn-sm" title="Reload proxy pool and settings from config.json">Load from config</button>
             </div>
             <div class="proxy-list-head">
               <span class="proxy-bar-label">Pool</span>
@@ -112,8 +190,8 @@
             </div>
             <ul class="proxy-list" id="proxy-list" aria-label="Configured proxies"></ul>
             <div class="proxy-add-row">
-              <input class="proxy-inp" type="text" id="proxy-add-input" placeholder="Add host:port" spellcheck="false" autocomplete="off" />
-              <button type="button" id="proxy-add-btn" class="ghost proxy-btn-sm">Add</button>
+              <textarea class="proxy-inp proxy-bulk-inp" id="proxy-add-input" rows="3" spellcheck="false" autocomplete="off" placeholder="host:port&#10;host:port:user:pass&#10;Bulk paste — one proxy per line"></textarea>
+              <button type="button" id="proxy-add-btn" class="ghost proxy-btn-sm" title="Add all lines to the pool">Add</button>
             </div>
             <div class="proxy-fields-row">
               <label class="proxy-check">
@@ -132,7 +210,7 @@
             </div>
           </form>
           <p class="proxy-pass-hint muted" id="proxy-pass-hint">Proxy password is stored in config.json only when you set one.</p>
-          <p class="proxy-hint muted" id="proxy-save-hint">http:// added automatically · Re-login applies next proxy</p>
+          <p class="proxy-hint muted" id="proxy-save-hint">Bulk: host:port:user:pass per line · Ctrl+Enter to add · Save writes to config.json</p>
         </section>
 
         <section class="farm-list-panel" id="farm-list-panel">
@@ -151,6 +229,10 @@
               <label class="proxy-check" title="Run farm list sends on a timer in the background">
                 <input type="checkbox" id="farm-list-enabled" name="enabled" />
                 <span>Runner ON</span>
+              </label>
+              <label class="proxy-check" title="Use Travian's global Start all farm lists button">
+                <input type="checkbox" id="farm-list-send-all-mode" name="sendAllMode" />
+                <span>Send all mode</span>
               </label>
               <label class="schedule-interval-lbl">
                 <span>Min</span>
@@ -175,6 +257,7 @@
             <div id="farm-list-items" class="farm-list-items" role="list" aria-label="Farm lists"></div>
             <p class="farm-list-items-empty muted" id="farm-list-items-empty">Load from game to see your farm lists, then check which to include.</p>
             <p class="farm-list-line muted" id="farm-list-next-line">—</p>
+            <p class="farm-list-line farm-list-line-next-red" id="farm-list-next-approx">Next send approx: —</p>
             <p class="farm-list-hint muted" id="farm-list-save-hint">Save — uses the green farm list button on the village screen</p>
           </form>
         </section>
@@ -227,21 +310,15 @@
         </div>
       </section>
 
-    <div class="hero-dropdown hero-dropdown--dock open" id="hero-dropdown">
-      <button type="button" class="hero-dropdown-toggle" id="hero-dropdown-toggle" aria-expanded="true" aria-controls="hero-dropdown-panel">
-        <span class="hero-dropdown-avatar" aria-hidden="true">🛡️</span>
-        <span class="hero-dropdown-label">
-          <span class="hero-dropdown-name" id="hero-name">Hero</span>
-          <span class="hero-dropdown-meta" id="hero-toggle-meta">HP — · Adv —</span>
-        </span>
-        <span class="hero-dropdown-chevron" aria-hidden="true"></span>
-      </button>
-      <div class="hero-dropdown-panel" id="hero-dropdown-panel">
-        <div class="hero-dropdown-toolbar">
-          <span class="hero-dropdown-toolbar-title">Hero</span>
-          <button type="button" class="ghost hero-dropdown-btn" data-action="refresh-hero" title="Refresh hero stats">↻</button>
+    <section class="hero-panel" id="hero-panel" aria-label="Hero">
+      <header class="hero-panel-toolbar">
+        <div class="hero-panel-head">
+          <span class="hero-panel-name" id="hero-name">Hero</span>
+          <span class="hero-panel-meta" id="hero-toggle-meta">HP — · Adv —</span>
         </div>
-        <div class="hero-dropdown-body">
+        <button type="button" class="ghost hero-panel-btn" data-action="refresh-hero" title="Refresh hero stats">↻</button>
+      </header>
+      <div class="hero-panel-body">
           <div class="hero-bars hero-bars--compact">
             <div class="bar-block">
               <div class="bar-label"><span>HP</span><span id="hero-health-text">—</span></div>
@@ -266,16 +343,15 @@
             <div class="adventures-panel-head">
               <h3 id="adventures-heading">Adv <span id="hero-badge">—</span></h3>
               <div class="adventures-actions">
-                <button type="button" class="ghost hero-dropdown-btn" data-action="refresh-adventures" title="Refresh">↻</button>
-                <button type="button" class="ghost hero-dropdown-btn adventures-send-btn" data-action="send-shortest-adventure" id="send-shortest-adventure" title="Send shortest">▶</button>
+                <button type="button" class="ghost hero-panel-btn" data-action="refresh-adventures" title="Refresh">↻</button>
+                <button type="button" class="ghost hero-panel-btn adventures-send-btn" data-action="send-shortest-adventure" id="send-shortest-adventure" title="Send shortest">▶</button>
               </div>
             </div>
             <p class="adventures-status muted" id="adventures-status" aria-live="polite">—</p>
             <ul class="adventures-list adventures-list--compact" id="adventures-list"></ul>
           </section>
-        </div>
       </div>
-    </div>
+    </section>
   </div>
 
   <main>

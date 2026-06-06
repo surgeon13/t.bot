@@ -109,6 +109,18 @@ Inline on the same row as **Player** / **Login** / **IP** (fills the rest of the
 
 Status lines show the next full run (`schedule-state.json`) and next resource batch (`resource-bonus-state.json`) when timers exist.
 
+### Work / sleep rhythm
+
+Second row in the **Scheduler** panel (same account bar):
+
+| Control | Config | Meaning |
+|---------|--------|---------|
+| **Work/sleep** | `workSleep.enabled` | When ON, the bot alternates work and sleep windows |
+| **Work min–max** | `workMinutesMin` / `workMinutesMax` | Random active window length (minutes) |
+| **Sleep min–max** | `sleepMinutesMin` / `sleepMinutesMax` | Random pause length (minutes) |
+
+While **sleeping**, embedded **All bonuses** and **Farm list** timers wait (no automated sends/claims). Manual **Run now**, **Send all**, and individual bonus buttons still work. Phase state: `data/work-sleep-state.json`. Save: `PUT /api/config/work-sleep`.
+
 ### Gather bonuses
 
 First panel in the main column (full width).
@@ -133,7 +145,7 @@ After a successful claim, the UI shows an optimistic **~8h active** until the ne
 
 **Hero** panel in the top row beside **Proxy** and **Lifetime totals** (same height). Click the header bar (hero name + HP / adventure count) to collapse or expand. **↻** refreshes stats from `/hero/attributes`.
 
-### Adventures (in hero dropdown)
+### Adventures (hero panel)
 
 Lists available adventures from the Travian adventures page (place, distance, travel time, difficulty). Each row shows **Time** and **Dist**; the **shortest** sendable row is highlighted.
 

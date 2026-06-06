@@ -119,6 +119,20 @@ See **[farm-list.md](farm-list.md)** for GUI usage.
 | `farmList.intervalMinutesMin` | number | `5` | Minimum minutes until the next send. |
 | `farmList.intervalMinutesMax` | number | `15` | Maximum minutes (random delay in range). |
 
+### Work / sleep rhythm (`workSleep`)
+
+Alternates **work** windows (automation allowed) and **sleep** windows (farm list + bonus schedulers pause). Each window length is random between min and max **minutes**.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `workSleep.enabled` | boolean | `false` | Enable work/sleep cycling. |
+| `workSleep.workMinutesMin` | number | `30` | Minimum work window (minutes). |
+| `workSleep.workMinutesMax` | number | `60` | Maximum work window (≥ min). |
+| `workSleep.sleepMinutesMin` | number | `15` | Minimum sleep window (minutes). |
+| `workSleep.sleepMinutesMax` | number | `45` | Maximum sleep window (≥ min). |
+
+Phase timing is stored in **`data/work-sleep-state.json`** (`phase`, `phaseEndsAt`). Manual GUI actions (**Run now**, **Send all**, single bonus buttons) are not blocked during sleep.
+
 ### Resource bonuses (`resourceBonuses`)
 
 | Key | Type | Default | Description |

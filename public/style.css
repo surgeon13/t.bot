@@ -201,10 +201,6 @@ header {
 }
 
 .account-bar {
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-  padding: 0;
   background: var(--bg-elev);
   border-bottom: 1px solid var(--border);
   font-size: var(--font-md);
@@ -218,16 +214,22 @@ header {
   flex-wrap: wrap;
   gap: 10px 20px;
   padding: 8px 22px;
-  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
-.account-bar-scheduler {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  padding: 6px 22px 6px 16px;
-  border-left: 1px solid var(--border);
+/* Scheduler — full-width row (bonuses, work/sleep, random stops) */
+.scheduler-row {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 8px 16px 10px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  box-sizing: border-box;
+}
+.scheduler-row .schedule-line {
+  max-width: none;
+  white-space: normal;
 }
 
 .account-item {
@@ -235,6 +237,20 @@ header {
   align-items: baseline;
   gap: 8px;
   min-width: 0;
+}
+.account-item-ip {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.account-ip-sub {
+  flex: 1 1 100%;
+  font-size: var(--font-tiny);
+  line-height: 1.2;
+  margin-left: 0;
+  padding-left: 0;
+}
+.account-val.ip-via-proxy {
+  color: var(--good);
 }
 
 .account-lbl {
@@ -259,6 +275,156 @@ header {
 }
 .account-val.mono.fail {
   color: var(--bad);
+}
+
+/* Daily hour / half-hour schedule (second dashboard row) */
+.daily-schedule-row {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 8px 16px 10px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  box-sizing: border-box;
+}
+.daily-schedule-panel {
+  width: 100%;
+  min-width: 0;
+}
+.daily-schedule-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.daily-schedule-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.daily-schedule-status-text {
+  flex: 1;
+  min-width: 120px;
+  font-size: var(--font-sm);
+  color: var(--text-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.daily-schedule-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-mute);
+  flex-shrink: 0;
+}
+.daily-schedule-dot.on { background: var(--good); }
+.daily-schedule-dot.off { background: var(--text-mute); }
+.daily-schedule-dot.warn { background: var(--warn); }
+.daily-schedule-hint {
+  margin: 0;
+  font-size: var(--font-tiny);
+  line-height: 1.25;
+}
+.daily-schedule-hint.ok { color: var(--good); }
+.daily-schedule-hint.fail { color: var(--bad); }
+.daily-schedule-panel .proxy-btn-sm,
+.daily-schedule-panel button.proxy-save {
+  padding: 6px 14px;
+  font-size: var(--font-base, 13px);
+  min-height: 32px;
+}
+.daily-schedule-master input {
+  width: 16px;
+  height: 16px;
+}
+.daily-schedule-grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+.daily-hour-cell {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  min-width: 58px;
+  padding: 6px 4px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.daily-hour-cell.active {
+  border-color: color-mix(in srgb, var(--good) 55%, var(--border));
+  background: color-mix(in srgb, var(--good) 8%, var(--bg-elev-2));
+}
+.daily-hour-cell.now {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.daily-hour-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-dim);
+  line-height: 1.2;
+  user-select: none;
+  border: none;
+  background: transparent;
+  padding: 4px 2px;
+  min-height: 22px;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 4px;
+}
+.daily-hour-label:hover {
+  color: var(--accent);
+}
+.daily-hour-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-mute);
+  cursor: pointer;
+  user-select: none;
+  min-height: 22px;
+  padding: 2px 0;
+}
+.daily-hour-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+select.daily-hour-proxy {
+  width: 100%;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 2px;
+  min-height: 26px;
+  cursor: pointer;
+  text-align: center;
+  text-align-last: center;
+  font-family: inherit;
+}
+select.daily-hour-proxy:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+select.daily-hour-proxy:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* Proxy + lifetime totals + hero (top dashboard row) */
@@ -407,7 +573,15 @@ header {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 4px;
-  align-items: center;
+  align-items: start;
+}
+.proxy-bulk-inp {
+  min-height: 4.5em;
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-xs);
+  line-height: 1.35;
+  padding: 6px 8px;
 }
 .proxy-select {
   font-family: inherit;
@@ -516,6 +690,28 @@ button.proxy-save:hover { filter: brightness(1.1); }
   padding: 0;
 }
 
+.schedule-status-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 2px;
+}
+.schedule-status-chip {
+  font-size: var(--font-xs);
+  line-height: 1.35;
+  max-width: 100%;
+}
+.schedule-status-chip:not(:empty):not(:only-child)::before {
+  content: '· ';
+  color: var(--text-mute);
+  margin-right: 4px;
+}
+.schedule-status-footer .schedule-status-chip:first-child::before,
+.schedule-status-footer .schedule-status-chip:only-child::before {
+  content: none;
+}
+
 .schedule-form {
   display: flex;
   flex-direction: column;
@@ -584,6 +780,16 @@ button.proxy-save:hover { filter: brightness(1.1); }
   gap: 4px 8px;
 }
 
+.work-sleep-row {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+}
+.work-sleep-lbl {
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+
 .schedule-interval-lbl {
   display: inline-flex;
   align-items: center;
@@ -620,14 +826,6 @@ button.proxy-save:hover { filter: brightness(1.1); }
 .proxy-hint.fail { color: var(--bad); }
 
 @media (max-width: 1000px) {
-  .account-bar {
-    flex-direction: column;
-  }
-  .account-bar-scheduler {
-    border-left: none;
-    border-top: 1px solid var(--border);
-    padding: 8px 22px;
-  }
   .schedule-line {
     max-width: 100%;
     white-space: normal;
@@ -640,7 +838,7 @@ button.proxy-save:hover { filter: brightness(1.1); }
   .proxy-totals-row .totals-card {
     min-width: 0;
   }
-  .proxy-totals-row .hero-dropdown {
+  .proxy-totals-row .hero-panel {
     flex: 1 1 auto;
     width: 100%;
     min-width: 0;
@@ -714,6 +912,7 @@ button.proxy-save:hover { filter: brightness(1.1); }
 }
 .dot.ok    { background: var(--good); }
 .dot.busy  { background: var(--accent); animation: pulse 1.2s infinite; }
+.dot.warn  { background: var(--warn); }
 .dot.bad   { background: var(--bad); }
 
 @keyframes pulse {
@@ -772,7 +971,7 @@ button.ghost:hover { color: var(--text); border-color: var(--accent); }
 button.ghost.quit-bot:hover { color: var(--bad); border-color: var(--bad); }
 
 /* ---------------- Hero panel (docked in proxy-totals row) ---------------- */
-.proxy-totals-row .hero-dropdown {
+.proxy-totals-row .hero-panel {
   flex: 0 0 var(--hero-panel-width);
   width: var(--hero-panel-width);
   min-width: 260px;
@@ -788,112 +987,44 @@ button.ghost.quit-bot:hover { color: var(--bad); border-color: var(--bad); }
   overflow: hidden;
 }
 
-.hero-dropdown-toggle {
-  width: 100%;
+.hero-panel-toolbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
-  margin: 0;
-  border: none;
-  border-bottom: 1px solid transparent;
-  border-radius: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
   background: var(--bg-elev-2);
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-  box-shadow: none;
-  font: inherit;
   flex-shrink: 0;
 }
-.hero-dropdown-toggle:hover {
-  background: var(--bg-elev-3);
-}
-.hero-dropdown.open .hero-dropdown-toggle {
-  border-bottom-color: var(--border);
-}
-
-.hero-dropdown-avatar {
-  font-size: 14px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.hero-dropdown-label {
+.hero-panel-head {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
 }
-.hero-dropdown-name {
+.hero-panel-name {
   font-weight: 600;
   font-size: var(--font-md);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.hero-dropdown-meta {
+.hero-panel-meta {
   font-size: var(--font-xs);
   color: var(--text-mute);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.hero-dropdown-chevron {
-  flex-shrink: 0;
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid var(--text-dim);
-  transition: transform 0.15s ease;
-}
-.hero-dropdown.open .hero-dropdown-chevron {
-  transform: rotate(180deg);
-}
-
-.hero-dropdown-panel {
-  flex: 1;
-  min-height: 0;
-  border: none;
-  border-radius: 0;
-  background: var(--bg-elev);
-  box-shadow: none;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.hero-dropdown:not(.open) .hero-dropdown-panel {
-  display: none;
-}
-.hero-dropdown.open .hero-dropdown-panel {
-  display: flex;
-}
-
-.hero-dropdown-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 4px 6px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-elev-2);
-}
-.hero-dropdown-toolbar-title {
-  font-size: var(--font-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-mute);
-}
-.hero-dropdown-btn {
+.hero-panel-btn {
   padding: 4px 8px !important;
   font-size: var(--font-sm) !important;
   min-height: 26px;
   line-height: 1.2;
 }
-
-.hero-dropdown-body {
+.hero-panel-body {
   padding: 8px 10px 10px;
   overflow-y: auto;
   display: flex;
@@ -901,6 +1032,17 @@ button.ghost.quit-bot:hover { color: var(--bad); border-color: var(--bad); }
   gap: 8px;
   flex: 1;
   min-height: 0;
+}
+.hero-panel-body .adventures-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.hero-panel-body .adventures-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .hero-bars--compact .bar-block { margin: 0 0 4px; }
@@ -1249,6 +1391,10 @@ button.ghost.adventures-send-btn:hover:not([disabled]) {
   display: none;
 }
 .farm-list-line { margin: 0; font-size: var(--font-xs); line-height: 1.3; }
+.farm-list-line-next-red {
+  color: var(--bad);
+  font-weight: 600;
+}
 .farm-list-stale-banner {
   margin: 0 0 0.5rem;
   padding: 0.5rem 0.65rem;

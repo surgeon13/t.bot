@@ -7,6 +7,7 @@ Automatically open the Travian **farm list** (rally point, `build.php?gid=16&tt=
 ```json
 "farmList": {
   "enabled": false,
+  "sendAllMode": false,
   "lists": [
     { "name": "Farm 1", "enabled": true },
     { "name": "Farm 2", "enabled": false }
@@ -19,13 +20,14 @@ Automatically open the Travian **farm list** (rally point, `build.php?gid=16&tt=
 | Key | Meaning |
 |-----|---------|
 | `enabled` | When `true`, the GUI runs a background timer (same process as the dashboard). |
+| `sendAllMode` | When `true`, the bot clicks Travian's global **Start all farm lists** button each cycle. |
 | `lists` | All farm lists known to the bot. Each entry has `name` (exact Travian label) and `enabled` (sent each cycle when `true`). |
 | `intervalMinutesMin` | Minimum wait before the **next cycle** (minutes). |
 | `intervalMinutesMax` | Maximum wait before the next cycle; actual delay is **random** between min and max. |
 
 Older configs may use plain strings in `lists`; those are treated as `{ "name": "…", "enabled": true }`.
 
-State is stored in `data/farm-list-state.json` (`nextRunAt`, `lastListName` of the last cycle). Each cycle sends **all checked** lists in order (about 2.5s between lists).
+State is stored in `data/farm-list-state.json` (`nextRunAt`, `lastListName`, `gameOrder` from the last discover/send). Each cycle sends **all checked** lists in the **same order as on the Travian farm list page** (village blocks top-to-bottom, lists within each village), about 2.5s between lists.
 
 ## GUI
 
@@ -34,6 +36,7 @@ Open **Farm lists** on the dashboard (under the proxy panel):
 | Control | Action |
 |---------|--------|
 | **Runner ON** | Enable the timer |
+| **Send all mode** | Use Travian's global **Start all farm lists** button (ignores per-list checkboxes) |
 | **Min / Max min** | Random delay range between **cycles** (after all checked lists are sent) |
 | **Load from game** | Open the farm list page and load every list name into the panel |
 | **All / None** | Check or uncheck every list |
@@ -42,7 +45,10 @@ Open **Farm lists** on the dashboard (under the proxy panel):
 | **Run now** | Send all checked lists as soon as possible (timer must be ON) |
 | **Send all** | Send all checked lists now without waiting for the timer |
 
-The bot opens rally point **Farm List** (`build.php?gid=16&tt=99`, `#rallyPointFarmList`), reads each list from `.farmListName .name` inside `.farmListWrapper`, and clicks that list’s own green **`button.startFarmList`** in `.farmListHeader` (e.g. `Start (64)`), falling back to the footer Start only if needed. It does not use any global “start all” control — each checked list is sent separately.
+The bot opens rally point **Farm List** (`build.php?gid=16&tt=99`, `#rallyPointFarmList`):
+
+- **`sendAllMode=false`**: clicks each checked list’s own green **`button.startFarmList`** in `.farmListHeader` (footer fallback).
+- **`sendAllMode=true`**: clicks global **`button.startAllFarmLists`** (`Start all farm lists`) once per cycle.
 
 ## HTTP API
 
@@ -59,7 +65,7 @@ The bot opens rally point **Farm List** (`build.php?gid=16&tt=99`, `#rallyPointF
 
 - Uses the same browser session and action lock as bonus claims (only one Playwright task at a time).
 - Disabled when `GUI_NO_SCHEDULER=1` (same as the embedded bonus scheduler).
-- List names must match the Travian UI; use **Load from game** once to populate the panel.
+- List names must match the Travian UI; use **Load from game** to populate the panel and refresh order after you rearrange lists in Travian.
 - Unchecked lists are skipped each cycle but remain in config for next time.
 - If one list fails to send, the bot continues with the rest and still schedules the next cycle.
 - Each successful **Start** increments `farmListSends` in `data/totals-state.json`, logs `[farmList]` and `[totals]`, and updates the dashboard (farm list panel + Lifetime totals).

@@ -26,6 +26,8 @@ const RESOURCE_BONUS_STATE_FILE = path.join(DATA_DIR, 'resource-bonus-state.json
 const TOTALS_STATE_FILE = path.join(DATA_DIR, 'totals-state.json');
 const PROXY_ROTATION_STATE_FILE = path.join(DATA_DIR, 'proxy-rotation-state.json');
 const FARM_LIST_STATE_FILE = path.join(DATA_DIR, 'farm-list-state.json');
+const WORK_SLEEP_STATE_FILE = path.join(DATA_DIR, 'work-sleep-state.json');
+const MICRO_PAUSE_STATE_FILE = path.join(DATA_DIR, 'micro-pause-state.json');
 
 /** Zip / docs folder name (not version-suffixed). */
 const PACKAGE_FOLDER_NAME = 't.bot';
@@ -37,6 +39,8 @@ const LEGACY_ROOT_FILES = [
   ['totals-state.json', TOTALS_STATE_FILE],
   ['proxy-rotation-state.json', PROXY_ROTATION_STATE_FILE],
   ['farm-list-state.json', FARM_LIST_STATE_FILE],
+  ['work-sleep-state.json', WORK_SLEEP_STATE_FILE],
+  ['micro-pause-state.json', MICRO_PAUSE_STATE_FILE],
 ];
 
 function ensureDir(dir) {
@@ -74,6 +78,8 @@ module.exports = {
   TOTALS_STATE_FILE,
   PROXY_ROTATION_STATE_FILE,
   FARM_LIST_STATE_FILE,
+  WORK_SLEEP_STATE_FILE,
+  MICRO_PAUSE_STATE_FILE,
   PACKAGE_FOLDER_NAME,
   migrateLegacyRootFiles,
 };

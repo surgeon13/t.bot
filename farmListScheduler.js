@@ -13,6 +13,9 @@ const {
   readFarmListState,
   randomNextRunAt,
 } = require('./farmListState');
+const { waitForWorkPhase, syncWorkSleepPhase } = require('./workSleep');
+const { waitForMicroPause, syncMicroPause } = require('./microPause');
+const { waitForDailyScheduleActive, isNowActive, normalizeDailySchedule } = require('./dailySchedule');
 
 const TAG = 'farmSchedule';
 
@@ -34,7 +37,7 @@ function nextRunFromStateOrSoon() {
  * @param {Date} nextAt
  * @param {{ stop?: boolean, runNow?: boolean }} control
  */
-async function waitUntilNextFarmRun(nextAt, control = {}) {
+async function waitUntilNextFarmRun(nextAt, control = {}, options = {}) {
   while (nextAt.getTime() > Date.now()) {
     if (!farmListSettings().enabled) {
       log.info(TAG, 'farmList.enabled is false — stopping');
@@ -46,6 +49,28 @@ async function waitUntilNextFarmRun(nextAt, control = {}) {
       log.info(TAG, 'Starting farm list send now');
       return 'run';
     }
+
+    const sync = syncWorkSleepPhase();
+    if (sync.settings.enabled && !sync.allowed) {
+      const wr = await waitForWorkPhase(control, { bypass: options.bypassSleep });
+      if (wr === 'stopped') return 'stopped';
+      continue;
+    }
+
+    const daily = normalizeDailySchedule();
+    if (daily.enabled && !isNowActive(daily).active) {
+      const dr = await waitForDailyScheduleActive(control);
+      if (dr.stopped) return 'stopped';
+      continue;
+    }
+
+    const mp = syncMicroPause();
+    if (mp.settings.enabled && !mp.allowed) {
+      const mr = await waitForMicroPause(control, { bypass: options.bypassMicroPause });
+      if (mr === 'stopped') return 'stopped';
+      continue;
+    }
+
     const left = nextAt.getTime() - Date.now();
     await sleep(Math.min(60_000, Math.max(500, left)));
   }
@@ -91,6 +116,20 @@ async function runFarmListSchedulerLoop(options = {}) {
     const waitResult = await waitUntilNextFarmRun(nextAt, control);
     if (waitResult === 'disabled') return { reason: 'disabled' };
     if (waitResult === 'stopped') return { reason: 'stopped' };
+
+    let bypassSleep = false;
+    if (control.bypassSleepOnce) {
+      bypassSleep = true;
+      control.bypassSleepOnce = false;
+    }
+    const wr = await waitForWorkPhase(control, { bypass: bypassSleep });
+    if (wr === 'stopped') return { reason: 'stopped' };
+
+    const dr = await waitForDailyScheduleActive(control);
+    if (dr.stopped) return { reason: 'stopped' };
+
+    const mr = await waitForMicroPause(control, { bypass: bypassSleep });
+    if (mr === 'stopped') return { reason: 'stopped' };
 
     await executeRun();
     if (control.stop) return { reason: 'stopped' };

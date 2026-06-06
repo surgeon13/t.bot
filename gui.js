@@ -26,6 +26,8 @@ const {
   proxySettings,
   normalizeProxyServer,
   parseProxyServerList,
+  proxyServersFromConfig,
+  readRotationIndex,
   clearSessionProxy,
 } = require('./browserLaunch');
 const { loadConfig, saveConfig, login, hasLoggedInShell, networkErrorHint } = require('./auth');
@@ -77,6 +79,30 @@ const {
   randomNextRunAt,
 } = require('./farmListState');
 const { runFarmListSchedulerLoop } = require('./farmListScheduler');
+const {
+  workSleepConfigForApi,
+  workSleepGuiStatus,
+  applyWorkSleepConfigFromBody,
+  waitForWorkPhase,
+} = require('./workSleep');
+const {
+  microPauseConfigForApi,
+  microPauseGuiStatus,
+  applyMicroPauseConfigFromBody,
+  waitForMicroPause,
+} = require('./microPause');
+const {
+  dailyScheduleConfigForApi,
+  dailyScheduleGuiStatus,
+  applyDailyScheduleFromBody,
+  proxyPickForNow,
+  scheduledProxyKey,
+} = require('./dailySchedule');
+const {
+  automationWindowAllowed,
+  shouldKeepBrowserOpen,
+  browserPauseStatusLine,
+} = require('./sessionGate');
 
 const TAG = 'gui';
 const PORT = Number(process.env.PORT) || 3733;
@@ -120,6 +146,9 @@ class ActionLock {
       this.busy = false;
       this.current = null;
       release();
+      syncBrowserSessionPolicy().catch(err => {
+        log.warn(TAG, `Session policy after ${name}: ${err.message}`);
+      });
     }
   }
 
@@ -238,9 +267,15 @@ let embeddedFarmControl = null;
 let embeddedFarmTask = null;
 let embeddedFarmGen = 0;
 
-async function runFarmListSendViaGui() {
+async function runFarmListSendViaGui(options = {}) {
   return lock.run('farmListRun', async () => {
     try {
+      if (!options.bypassSleep) {
+        const wr = await waitForWorkPhase({});
+        if (wr === 'stopped') {
+          return { ok: false, status: 'skipped', message: 'Farm list send stopped' };
+        }
+      }
       await ensureSession();
       if (!loggedIn || !page || page.isClosed()) {
         log.warn(TAG, 'Farm list send skipped: not logged in');
@@ -275,7 +310,7 @@ function syncEmbeddedFarmScheduler() {
     setEmbeddedFarmSchedulerActive(false);
     return;
   }
-  if (!fl.enabled || !fl.activeCount) {
+  if (!fl.enabled || !farmListTargetCount(fl)) {
     embeddedFarmControl = null;
     embeddedFarmTask = null;
     setEmbeddedFarmSchedulerActive(false);
@@ -285,7 +320,12 @@ function syncEmbeddedFarmScheduler() {
   const control = { stop: false, runNow: false };
   embeddedFarmControl = control;
   setEmbeddedFarmSchedulerActive(true);
-  log.info(TAG, `Farm list scheduler started (${fl.activeCount}/${fl.totalCount} checked, ${fl.intervalMinutesMin}–${fl.intervalMinutesMax} min)`);
+  log.info(
+    TAG,
+    fl.sendAllMode
+      ? `Farm list scheduler started (Start all mode, ${fl.totalCount} total, ${fl.intervalMinutesMin}–${fl.intervalMinutesMax} min)`
+      : `Farm list scheduler started (${fl.activeCount}/${fl.totalCount} checked, ${fl.intervalMinutesMin}–${fl.intervalMinutesMax} min)`,
+  );
 
   const st = readFarmListState();
   if (!st?.nextRunAt || new Date(st.nextRunAt).getTime() > Date.now() + 60_000) {
@@ -315,7 +355,7 @@ function syncEmbeddedFarmScheduler() {
       embeddedFarmControl = null;
       embeddedFarmTask = null;
       setEmbeddedFarmSchedulerActive(false);
-      if (!guiShuttingDown && farmListSettings().enabled && farmListSettings().activeCount
+      if (!guiShuttingDown && farmListSettings().enabled && farmListTargetCount(farmListSettings())
         && process.env.GUI_NO_SCHEDULER !== '1') {
         log.warn(TAG, 'Farm list scheduler exited unexpectedly — restarting in 2s');
         setTimeout(() => {
@@ -330,9 +370,11 @@ function syncEmbeddedFarmSchedulerAfterConfigSave() {
 }
 
 function farmListConfigForApi(cfg = loadConfig()) {
-  const fl = farmListSettings(cfg);
+  const st = readFarmListState();
+  const fl = farmListSettings(cfg, { gameOrder: st?.gameOrder });
   return {
     enabled: fl.enabled,
+    sendAllMode: fl.sendAllMode,
     lists: fl.allLists,
     activeCount: fl.activeCount,
     totalCount: fl.totalCount,
@@ -350,9 +392,10 @@ function farmListStatusForApi(cfg = loadConfig()) {
 
 function applyFarmListConfigFromBody(cfg, body = {}) {
   if (!cfg.farmList) {
-    cfg.farmList = { enabled: false, lists: [], intervalMinutesMin: 5, intervalMinutesMax: 15 };
+    cfg.farmList = { enabled: false, sendAllMode: false, lists: [], intervalMinutesMin: 5, intervalMinutesMax: 15 };
   }
   if (typeof body.enabled === 'boolean') cfg.farmList.enabled = body.enabled;
+  if (typeof body.sendAllMode === 'boolean') cfg.farmList.sendAllMode = body.sendAllMode;
 
   if (Array.isArray(body.lists)) {
     cfg.farmList.lists = normalizeFarmListsFromConfig(body.lists);
@@ -360,7 +403,6 @@ function applyFarmListConfigFromBody(cfg, body = {}) {
     const names = String(body.listsText).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     cfg.farmList.lists = normalizeFarmListsFromConfig(names);
   }
-
   if (body.intervalMinutesMin != null) {
     const n = Number(body.intervalMinutesMin);
     if (!Number.isNaN(n) && n >= 1) cfg.farmList.intervalMinutesMin = n;
@@ -373,7 +415,21 @@ function applyFarmListConfigFromBody(cfg, body = {}) {
   const max = Math.max(min, Number(cfg.farmList.intervalMinutesMax) || 15);
   cfg.farmList.intervalMinutesMin = min;
   cfg.farmList.intervalMinutesMax = max;
+
+  if (Array.isArray(cfg.farmList.lists) && cfg.farmList.lists.length) {
+    const prev = readFarmListState();
+    writeFarmListState({
+      ...prev,
+      gameOrder: cfg.farmList.lists.map(l => l.name),
+      intervalMinutesMin: min,
+      intervalMinutesMax: max,
+    });
+  }
   return cfg;
+}
+
+function farmListTargetCount(fl) {
+  return fl.sendAllMode ? fl.totalCount : fl.activeCount;
 }
 
 /* --------------------------------------------------------------------- */
@@ -388,6 +444,77 @@ let loggedIn = false;
 let proxyStatusCache = null;
 /** @type {object|null} Player name + public IP for the GUI */
 let accountCache = null;
+/** Tracks daily-schedule proxy slot so browser restarts when it changes. */
+let lastDailyProxyPickKey = null;
+
+function dailyProxyPickKey(cfg = loadConfig()) {
+  if (cfg?.dailySchedule?.enabled) return scheduledProxyKey(cfg);
+  return 'global';
+}
+
+function shouldTryNextProxy(cfg, proxyOpts, attempt) {
+  if (proxyOpts.forcedIndex != null || proxyOpts.forceDirect) return false;
+  const raw = proxyRawBlock(cfg);
+  if (!raw.enabled) return false;
+  const servers = proxyServersFromConfig(cfg);
+  if (servers.length <= 1) return false;
+  const mode = String(raw.rotation || 'round-robin').toLowerCase();
+  return mode === 'round-robin' && attempt + 1 < servers.length;
+}
+
+async function destroyContextOnly() {
+  loggedIn = false;
+  clearSessionProxy();
+  try { if (page && !page.isClosed()) await page.close(); } catch {}
+  try { if (context) await context.close(); } catch {}
+  page = null;
+  context = null;
+}
+
+async function openBrowserContext(cfg, proxyOpts) {
+  if (!browser) {
+    const headless = cfg.headless !== false;
+    log.info(TAG, `Launching browser (headless=${headless})`);
+    browser = await launchBrowser({ headless });
+  }
+  context = await newGameContext(browser, cfg, proxyOpts);
+  lastDailyProxyPickKey = dailyProxyPickKey(cfg);
+  page = await context.newPage();
+  const label = proxyLogLabel(cfg);
+  log.info(TAG, label === 'off' ? 'Browser context — direct (no proxy)' : `Browser context using proxy: ${label}`);
+}
+
+function proxyHostFromServer(server) {
+  const s = String(server || '').trim();
+  if (!s) return '';
+  try {
+    return new URL(s.includes('://') ? s : `http://${s}`).hostname;
+  } catch {
+    const m = s.match(/^(?:https?:\/\/)?([^:/]+)/i);
+    return m ? m[1] : '';
+  }
+}
+
+function enrichAccountWithProxy(account, cfg = loadConfig()) {
+  const info = getProxyInfo(cfg);
+  const proxyHost = proxyHostFromServer(info.server);
+  const ip = account?.publicIp;
+  const ipMatchesProxy = !!(
+    info.configured
+    && ip
+    && proxyHost
+    && (ip === proxyHost || ip.replace(/^\[|\]$/g, '') === proxyHost)
+  );
+  return {
+    ...account,
+    ipViaProxy: info.configured,
+    activeProxyServer: info.server || '',
+    activeProxyIndex: info.serverIndex ?? 0,
+    activeProxyCount: info.serverCount || 0,
+    activeProxyDisplay: info.display || '',
+    ipMatchesProxy,
+  };
+}
 
 function accountPayloadForApi() {
   const cfg = loadConfig();
@@ -399,7 +526,7 @@ function accountPayloadForApi() {
     ipError: null,
     ipCheckedAt: null,
   };
-  return { ...base, loggedIn: !!loggedIn };
+  return enrichAccountWithProxy({ ...base, loggedIn: !!loggedIn }, cfg);
 }
 
 async function refreshAccountInfo(targetPage = page) {
@@ -427,7 +554,7 @@ async function refreshAccountInfo(targetPage = page) {
     readPublicIp(context).catch(err => ({ ip: null, error: err.message })),
   ]);
 
-  accountCache = {
+  accountCache = enrichAccountWithProxy({
     ...base,
     playerName: playerName || null,
     publicIp: ipResult.ip || null,
@@ -435,10 +562,13 @@ async function refreshAccountInfo(targetPage = page) {
     ipSource: ipResult.source || null,
     ipCheckedAt: new Date().toISOString(),
     loggedIn: true,
-  };
+  }, cfg);
 
   if (accountCache.publicIp) {
-    log.info(TAG, `Public IP (browser): ${accountCache.publicIp}`);
+    const via = accountCache.ipViaProxy
+      ? `via proxy ${accountCache.activeProxyDisplay || accountCache.activeProxyServer}`
+      : 'direct';
+    log.info(TAG, `Outbound IP (${via}): ${accountCache.publicIp}`);
   } else if (accountCache.ipError) {
     log.warn(TAG, `Public IP lookup failed: ${accountCache.ipError}`);
   }
@@ -451,19 +581,51 @@ async function refreshAccountInfo(targetPage = page) {
   return accountCache;
 }
 
+function proxyStoredInConfig(cfg = loadConfig()) {
+  const raw = cfg?.proxy;
+  if (!raw) return false;
+  if (typeof raw === 'string' && raw.trim()) return true;
+  const servers = parseProxyServerList(raw.server, raw.servers);
+  if (servers.length) return true;
+  if (String(raw.username || '').trim()) return true;
+  if (raw.password != null && String(raw.password).length > 0) return true;
+  if (String(raw.bypass || '').trim()) return true;
+  return false;
+}
+
+function proxyRawBlock(cfg = loadConfig()) {
+  const raw = cfg?.proxy;
+  if (typeof raw === 'string' && raw.trim()) {
+    return {
+      enabled: true,
+      server: raw.trim(),
+      servers: [],
+      rotation: 'round-robin',
+      username: '',
+      password: '',
+      bypass: '',
+    };
+  }
+  return raw && typeof raw === 'object' ? raw : {};
+}
+
+/** Proxy settings read from config.json (not the live browser session). */
 function proxyConfigForApi() {
-  const p = proxySettings(loadConfig());
-  const servers = p.servers?.length ? p.servers : (p.server ? [p.server] : []);
+  const cfg = loadConfig();
+  const raw = proxyRawBlock(cfg);
+  const servers = proxyServersFromConfig(cfg);
+  const serverIndex = servers.length > 1 ? readRotationIndex() % servers.length : 0;
   return {
-    enabled: p.enabled,
-    server: p.server,
+    enabled: raw.enabled === true,
+    server: servers[0] || normalizeProxyServer(String(raw.server || '').trim()),
     servers,
     serverCount: servers.length,
-    serverIndex: p.serverIndex ?? 0,
-    rotation: p.rotation || 'round-robin',
-    username: p.username,
-    bypass: p.bypass,
-    hasPassword: !!p.password,
+    serverIndex,
+    rotation: String(raw.rotation || 'round-robin').toLowerCase(),
+    username: String(raw.username || '').trim(),
+    bypass: String(raw.bypass || '').trim(),
+    hasPassword: raw.password != null && String(raw.password).length > 0,
+    hasStored: proxyStoredInConfig(cfg),
   };
 }
 
@@ -569,23 +731,34 @@ async function sessionStillLoggedIn(targetPage = page) {
   }
 }
 
-async function ensureSession() {
+async function ensureSession(options = {}) {
   const cfg = loadConfig();
-  if (browser && page && !page.isClosed() && loggedIn) {
-    if (await sessionStillLoggedIn(page)) return;
-    log.warn(TAG, 'Logged out or session expired — re-logging in');
-    loggedIn = false;
+  const proxyOpts = proxyPickForNow(cfg);
+  const proxyKey = dailyProxyPickKey(cfg);
+  const proxyAttempt = options.proxyAttempt || 0;
+
+  if (options.freshContext && browser) {
+    await destroyContextOnly();
   }
-  try {
-    if (!browser) {
-      const headless = cfg.headless !== false;
-      log.info(TAG, `Launching browser (headless=${headless}, proxy=${proxyLogLabel(cfg)})`);
-      browser = await launchBrowser({ headless });
-      context = await newGameContext(browser);
+
+  if (browser && page && !page.isClosed() && loggedIn && !options.freshContext) {
+    if (proxyKey !== lastDailyProxyPickKey) {
+      log.info(TAG, `Daily schedule proxy changed (${lastDailyProxyPickKey} → ${proxyKey}) — reconnecting`);
+      await destroyContextOnly();
+    } else if (await sessionStillLoggedIn(page)) {
+      return;
+    } else {
+      log.warn(TAG, 'Session expired — new context + proxy for re-login');
+      await destroyContextOnly();
     }
-    if (!page || page.isClosed()) {
-      if (!context) context = await newGameContext(browser);
-      page = await context.newPage();
+  } else if (browser && proxyKey !== lastDailyProxyPickKey) {
+    log.info(TAG, `Daily schedule proxy changed (${lastDailyProxyPickKey} → ${proxyKey}) — restarting browser`);
+    await closeSession().catch(() => {});
+  }
+
+  try {
+    if (!context || !page || page.isClosed()) {
+      await openBrowserContext(cfg, proxyOpts);
     }
   } catch (err) {
     log.error(TAG, `Browser launch failed: ${networkErrorHint(err)}`);
@@ -594,13 +767,23 @@ async function ensureSession() {
     return;
   }
 
-  log.info(TAG, 'Logging in');
+  log.info(TAG, proxyAttempt > 0
+    ? `Logging in (proxy attempt ${proxyAttempt + 1})`
+    : 'Logging in');
   try {
     loggedIn = await login(page);
   } catch (err) {
     log.error(TAG, `Login error: ${networkErrorHint(err)}`);
     loggedIn = false;
   }
+
+  if (!loggedIn && shouldTryNextProxy(cfg, proxyOpts, proxyAttempt)) {
+    const total = proxyServersFromConfig(cfg).length;
+    log.warn(TAG, `Login failed — rotating to next proxy (${proxyAttempt + 2}/${total})`);
+    await destroyContextOnly();
+    return ensureSession({ ...options, proxyAttempt: proxyAttempt + 1 });
+  }
+
   if (!loggedIn) {
     log.warn(TAG, 'Login failed');
     const cfgAfter = loadConfig();
@@ -630,6 +813,7 @@ async function closeSession() {
   loggedIn = false;
   proxyStatusCache = null;
   accountCache = null;
+  lastDailyProxyPickKey = null;
   clearSessionProxy();
   try { if (page && !page.isClosed()) await page.close(); } catch {}
   try { if (context) await context.close(); } catch {}
@@ -637,6 +821,40 @@ async function closeSession() {
   page = null;
   context = null;
   browser = null;
+}
+
+/** Close browser during pauses; reconnect when schedule proxy slot changes. */
+async function syncBrowserSessionPolicy() {
+  if (guiShuttingDown || lock.busy) return;
+
+  const cfg = loadConfig();
+  const proxyKey = dailyProxyPickKey(cfg);
+  if (browser && lastDailyProxyPickKey != null && proxyKey !== lastDailyProxyPickKey) {
+    log.info(TAG, `Daily schedule proxy changed (${lastDailyProxyPickKey} → ${proxyKey}) — closing browser`);
+    clearBonusesPollCache();
+    await closeSession();
+    return;
+  }
+
+  const gate = automationWindowAllowed(cfg);
+  if (gate.allowed || !browser) return;
+
+  const msg = browserPauseStatusLine(gate);
+  log.info(TAG, msg);
+  clearBonusesPollCache();
+  await closeSession();
+}
+
+function browserSessionForApi(cfg = loadConfig()) {
+  const gate = automationWindowAllowed(cfg);
+  const pauseLine = browserPauseStatusLine(gate);
+  return {
+    keepOpen: gate.allowed,
+    pauseReason: gate.reason,
+    statusLine: gate.allowed
+      ? (loggedIn ? 'Connected' : 'Not logged in')
+      : pauseLine,
+  };
 }
 
 /* --------------------------------------------------------------------- */
@@ -758,11 +976,26 @@ app.get('/api/status', async (_req, res) => {
     proxyConfig: proxyConfigForApi(),
     farmListConfig: farmListConfigForApi(cfg),
     farmListStatus: farmListStatusForApi(cfg),
+    workSleepConfig: workSleepConfigForApi(cfg),
+    workSleepStatus: workSleepGuiStatus(cfg),
+    microPauseConfig: microPauseConfigForApi(cfg),
+    microPauseStatus: microPauseGuiStatus(cfg),
+    dailyScheduleConfig: dailyScheduleConfigForApi(cfg),
+    dailyScheduleStatus: dailyScheduleGuiStatus(cfg),
+    browserSession: browserSessionForApi(cfg),
   });
 });
 
 app.get('/api/config/proxy', (_req, res) => {
-  res.json({ ok: true, proxy: proxyConfigForApi() });
+  try {
+    res.json({ ok: true, proxy: proxyConfigForApi() });
+  } catch (err) {
+    log.error(TAG, `Proxy config read failed: ${err.message}`);
+    res.status(500).json({
+      ok: false,
+      message: `Could not read config.json: ${err.message}`,
+    });
+  }
 });
 
 app.put('/api/config/proxy', async (req, res) => {
@@ -790,6 +1023,86 @@ app.get('/api/config/schedule', (_req, res) => {
     schedule: scheduleConfigForApi(cfg),
     scheduleStatus: scheduleGuiStatus(cfg, resourceState),
   });
+});
+
+app.get('/api/config/daily-schedule', (_req, res) => {
+  const cfg = loadConfig();
+  res.json({
+    ok: true,
+    dailySchedule: dailyScheduleConfigForApi(cfg),
+    dailyScheduleStatus: dailyScheduleGuiStatus(cfg),
+  });
+});
+
+app.put('/api/config/daily-schedule', (req, res) => {
+  try {
+    const cfg = applyDailyScheduleFromBody(loadConfig(), req.body || {});
+    saveConfig(cfg);
+    syncBrowserSessionPolicy().catch(() => {});
+    res.json({
+      ok: true,
+      dailySchedule: dailyScheduleConfigForApi(cfg),
+      dailyScheduleStatus: dailyScheduleGuiStatus(cfg),
+      message: cfg.dailySchedule?.enabled
+        ? 'Daily schedule saved — farm list and bonus timers run only in enabled slots'
+        : 'Daily schedule is off',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+app.get('/api/config/work-sleep', (_req, res) => {
+  const cfg = loadConfig();
+  res.json({
+    ok: true,
+    workSleep: workSleepConfigForApi(cfg),
+    workSleepStatus: workSleepGuiStatus(cfg),
+  });
+});
+
+app.put('/api/config/work-sleep', (req, res) => {
+  try {
+    const cfg = applyWorkSleepConfigFromBody(loadConfig(), req.body || {});
+    saveConfig(cfg);
+    syncBrowserSessionPolicy().catch(() => {});
+    res.json({
+      ok: true,
+      workSleep: workSleepConfigForApi(cfg),
+      workSleepStatus: workSleepGuiStatus(cfg),
+      message: cfg.workSleep?.enabled
+        ? `Work/sleep ON — work ${cfg.workSleep.workMinutesMin}–${cfg.workSleep.workMinutesMax} min, sleep ${cfg.workSleep.sleepMinutesMin}–${cfg.workSleep.sleepMinutesMax} min`
+        : 'Work/sleep rhythm is off',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+app.get('/api/config/micro-pause', (_req, res) => {
+  const cfg = loadConfig();
+  res.json({
+    ok: true,
+    microPause: microPauseConfigForApi(cfg),
+    microPauseStatus: microPauseGuiStatus(cfg),
+  });
+});
+
+app.put('/api/config/micro-pause', (req, res) => {
+  try {
+    const cfg = applyMicroPauseConfigFromBody(loadConfig(), req.body || {});
+    saveConfig(cfg);
+    res.json({
+      ok: true,
+      microPause: microPauseConfigForApi(cfg),
+      microPauseStatus: microPauseGuiStatus(cfg),
+      message: cfg.microPause?.enabled
+        ? `Random stops ON — pause ${cfg.microPause.pauseMinutesMin}–${cfg.microPause.pauseMinutesMax} min every ${cfg.microPause.intervalMinutesMin}–${cfg.microPause.intervalMinutesMax} min`
+        : 'Random stops off',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
 });
 
 app.put('/api/config/schedule', (req, res) => {
@@ -833,14 +1146,17 @@ app.put('/api/config/farm-list', (req, res) => {
     saveConfig(cfg);
     syncEmbeddedFarmSchedulerAfterConfigSave();
     const fl = farmListSettings(cfg);
+    const targets = farmListTargetCount(fl);
     res.json({
       ok: true,
       farmList: farmListConfigForApi(cfg),
       farmListStatus: farmListStatusForApi(cfg),
-      message: fl.enabled && fl.activeCount
-        ? `Farm list saved. Sends all ${fl.activeCount} checked list(s) each cycle (${fl.totalCount} total), every ${fl.intervalMinutesMin}–${fl.intervalMinutesMax} min.`
+      message: fl.enabled && targets
+        ? fl.sendAllMode
+          ? `Farm list saved. Uses "Start all farm lists" (${fl.totalCount} total) each cycle, every ${fl.intervalMinutesMin}–${fl.intervalMinutesMax} min.`
+          : `Farm list saved. Sends all ${fl.activeCount} checked list(s) each cycle (${fl.totalCount} total), every ${fl.intervalMinutesMin}–${fl.intervalMinutesMax} min.`
         : fl.enabled && fl.totalCount
-          ? 'Farm list enabled — check at least one list and Save.'
+          ? (fl.sendAllMode ? 'Farm list enabled — Start all mode will send every list on page.' : 'Farm list enabled — check at least one list and Save.')
           : fl.enabled
             ? 'Farm list enabled — load lists from game first.'
             : 'Farm list runner is off.',
@@ -853,14 +1169,15 @@ app.put('/api/config/farm-list', (req, res) => {
 app.post('/api/farm-list/run-now', (_req, res) => {
   const cfg = loadConfig();
   const fl = farmListSettings(cfg);
+  const targets = farmListTargetCount(fl);
   if (!fl.enabled) {
     return res.status(400).json({ ok: false, message: 'Turn on Farm list runner and Save first.' });
   }
-  if (!fl.activeCount) {
+  if (!targets) {
     return res.status(400).json({
       ok: false,
       message: fl.totalCount
-        ? 'Check at least one farm list and Save.'
+        ? (fl.sendAllMode ? 'Load farm lists from game and Save.' : 'Check at least one farm list and Save.')
         : 'Load farm lists from game, check lists to include, and Save.',
     });
   }
@@ -875,6 +1192,7 @@ app.post('/api/farm-list/run-now', (_req, res) => {
     return res.status(503).json({ ok: false, message: 'Farm list scheduler could not start. Check bot.log.' });
   }
   embeddedFarmControl.runNow = true;
+  embeddedFarmControl.bypassSleepOnce = true;
   log.info(TAG, 'Farm list run-now requested from GUI');
   res.json({
     ok: true,
@@ -885,19 +1203,21 @@ app.post('/api/farm-list/run-now', (_req, res) => {
 
 async function handleFarmListSendAll(_req, res) {
   const fl = farmListSettings();
-  if (!fl.activeCount) {
+  const targets = farmListTargetCount(fl);
+  if (!targets) {
     return res.status(400).json({
       ok: false,
       message: fl.totalCount
-        ? 'Check at least one farm list and Save.'
+        ? (fl.sendAllMode ? 'Load farm lists from game and Save.' : 'Check at least one farm list and Save.')
         : 'Load farm lists from game, check lists to include, and Save.',
     });
   }
-  log.info(TAG, `Farm list send-all requested (${fl.activeCount} checked)`);
-  const result = await runFarmListSendViaGui();
+  log.info(TAG, `Farm list send-all requested (${fl.sendAllMode ? `${fl.totalCount} total (start-all mode)` : `${fl.activeCount} checked`})`);
+  const result = await runFarmListSendViaGui({ bypassSleep: true });
   res.json({
     ...result,
     farmListStatus: farmListStatusForApi(),
+    workSleepStatus: workSleepGuiStatus(),
     totals: getTotals(),
   });
 }
@@ -915,6 +1235,13 @@ app.get('/api/farm-list/discover', async (_req, res) => {
     const cfg = loadConfig();
     const lists = mergeFarmLists(cfg.farmList?.lists || [], discovered);
     const sendableCount = entries.filter(e => e.canSend).length;
+    const prev = readFarmListState();
+    writeFarmListState({
+      ...prev,
+      gameOrder: discovered,
+      intervalMinutesMin: farmListSettings(cfg).intervalMinutesMin,
+      intervalMinutesMax: farmListSettings(cfg).intervalMinutesMax,
+    });
     return {
       ok: true,
       lists,
@@ -950,6 +1277,7 @@ app.post('/api/schedule/run-now', (_req, res) => {
   }
 
   embeddedScheduleControl.runNow = true;
+  embeddedScheduleControl.bypassSleepOnce = true;
   log.info(TAG, 'Scheduler run-now requested from GUI');
   res.json({
     ok: true,
@@ -1331,7 +1659,7 @@ app.post('/api/relogin', async (_req, res) => {
   try {
     await lock.run('relogin', async () => {
       await closeSession();
-      await ensureSession();
+      await ensureSession({ freshContext: true });
     });
     res.json({
       ok: loggedIn,
@@ -1451,10 +1779,15 @@ process.on('unhandledRejection', err => {
 
 const server = app.listen(PORT, HOST, async () => {
   log.info(TAG, `GUI listening on http://${HOST}:${PORT}`);
-  try {
-    await ensureSession();
-  } catch (err) {
-    log.error(TAG, `Startup login failed: ${err.message}`);
+  const startupGate = automationWindowAllowed(loadConfig());
+  if (startupGate.allowed) {
+    try {
+      await ensureSession();
+    } catch (err) {
+      log.error(TAG, `Startup login failed: ${err.message}`);
+    }
+  } else {
+    log.info(TAG, browserPauseStatusLine(startupGate));
   }
   syncEmbeddedScheduler();
   syncEmbeddedFarmScheduler();
@@ -1463,9 +1796,18 @@ const server = app.listen(PORT, HOST, async () => {
   }
 });
 
+const SESSION_POLICY_MS = 30 * 1000;
+setInterval(() => {
+  if (guiShuttingDown) return;
+  syncBrowserSessionPolicy().catch(err => {
+    log.warn(TAG, `Session policy check: ${err.message}`);
+  });
+}, SESSION_POLICY_MS);
+
 const SESSION_RECHECK_MS = 3 * 60 * 1000;
 setInterval(() => {
   if (guiShuttingDown || lock.busy || !page || page.isClosed()) return;
+  if (!shouldKeepBrowserOpen(loadConfig())) return;
   sessionStillLoggedIn(page).then(ok => {
     if (!ok && loggedIn) {
       log.warn(TAG, 'Background session check: logged out — will re-login on next action');

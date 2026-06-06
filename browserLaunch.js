@@ -88,13 +88,48 @@ function clearSessionProxy() {
 
 /**
  * Pick which proxy URL to use for the next browser context (round-robin / random / sticky).
+ * @param {{ forcedIndex?: number, forceDirect?: boolean }} [options]
  */
-function selectProxyForSession(cfg = loadConfig()) {
+function selectProxyForSession(cfg = loadConfig(), options = {}) {
   clearSessionProxy();
   const p = rawProxyBlock(cfg);
+  const servers = proxyServersFromConfig(cfg);
+
+  const forced = options.forcedIndex;
+  if (forced != null && forced >= 0 && forced < servers.length) {
+    sessionProxyPick = {
+      enabled: true,
+      server: servers[forced],
+      servers,
+      serverIndex: forced,
+      serverCount: servers.length,
+      rotation: 'daily-schedule',
+      username: String(p.username || '').trim(),
+      password: p.password != null ? String(p.password) : '',
+      bypass: String(p.bypass || '').trim(),
+    };
+    log.info('browser', `Daily schedule proxy ${forced + 1}/${servers.length}: ${sessionProxyPick.server}`);
+    return sessionProxyPick;
+  }
+
+  if (options.forceDirect) {
+    sessionProxyPick = {
+      enabled: false,
+      server: '',
+      servers: [],
+      serverIndex: -1,
+      serverCount: 0,
+      rotation: 'direct',
+      username: '',
+      password: '',
+      bypass: '',
+    };
+    log.info('browser', 'Daily schedule: direct connection (no proxy)');
+    return sessionProxyPick;
+  }
+
   if (!p.enabled) return null;
 
-  const servers = proxyServersFromConfig(cfg);
   if (!servers.length) {
     log.warn('browser', 'proxy.enabled is true but no proxy servers are configured');
     return null;
@@ -211,8 +246,8 @@ async function launchBrowser(options = {}) {
   return chromium.launch(launchOpts);
 }
 
-async function newGameContext(browser, cfg = loadConfig()) {
-  selectProxyForSession(cfg);
+async function newGameContext(browser, cfg = loadConfig(), proxyOptions = {}) {
+  selectProxyForSession(cfg, proxyOptions);
 
   const contextOpts = {
     viewport: { width: 1280, height: 900 },
@@ -250,6 +285,7 @@ module.exports = {
   normalizeProxyServer,
   parseProxyServerList,
   proxyServersFromConfig,
+  readRotationIndex,
   selectProxyForSession,
   clearSessionProxy,
   proxySettings,

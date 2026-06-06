@@ -33,7 +33,38 @@ function normalizeFarmListsFromConfig(raw) {
 }
 
 /**
+ * Reorder list entries to match the game page (village → list DOM order).
+ * Lists only in config are appended at the end in their previous order.
+ * @param {Array<{name:string,enabled?:boolean}>} lists
+ * @param {string[]} gameOrderNames
+ */
+function orderFarmListsByGame(lists, gameOrderNames) {
+  const items = normalizeFarmListsFromConfig(lists);
+  const order = (gameOrderNames || [])
+    .map(n => String(n || '').trim())
+    .filter(Boolean);
+  if (!order.length) return items;
+
+  const byKey = new Map(items.map(e => [e.name.toLowerCase(), e]));
+  const out = [];
+  const placed = new Set();
+
+  for (const name of order) {
+    const key = name.toLowerCase();
+    if (!byKey.has(key) || placed.has(key)) continue;
+    out.push(byKey.get(key));
+    placed.add(key);
+  }
+  for (const entry of items) {
+    const key = entry.name.toLowerCase();
+    if (!placed.has(key)) out.push(entry);
+  }
+  return out;
+}
+
+/**
  * Merge lists from game discovery with saved config (keeps enabled flags).
+ * Result order matches the game page; config-only lists stay at the end.
  * @param {Array<string|{name:string,enabled?:boolean}>} existing
  * @param {string[]} discoveredNames
  */
@@ -42,25 +73,61 @@ function mergeFarmLists(existing, discoveredNames) {
   for (const entry of normalizeFarmListsFromConfig(existing)) {
     byKey.set(entry.name.toLowerCase(), { ...entry });
   }
-  for (const rawName of discoveredNames || []) {
-    const name = String(rawName || '').trim();
-    if (!name) continue;
+  const discovered = (discoveredNames || [])
+    .map(n => String(n || '').trim())
+    .filter(Boolean);
+  const out = [];
+  for (const name of discovered) {
     const key = name.toLowerCase();
-    if (!byKey.has(key)) {
-      byKey.set(key, { name, enabled: true });
+    if (byKey.has(key)) {
+      out.push(byKey.get(key));
+    } else {
+      out.push({ name, enabled: true });
     }
   }
-  return Array.from(byKey.values());
+  for (const entry of byKey.values()) {
+    const key = entry.name.toLowerCase();
+    if (!discovered.some(n => n.toLowerCase() === key)) out.push(entry);
+  }
+  return out;
 }
 
-function farmListSettings(cfg = loadConfig()) {
+/** @param {string[]} activeNames @param {string[]} gameOrderNames */
+function orderActiveNamesByGame(activeNames, gameOrderNames) {
+  const names = (activeNames || []).map(n => String(n || '').trim()).filter(Boolean);
+  const order = (gameOrderNames || []).map(n => String(n || '').trim()).filter(Boolean);
+  if (!order.length) return names;
+  const want = new Set(names.map(n => n.toLowerCase()));
+  const out = [];
+  const placed = new Set();
+  for (const name of order) {
+    const key = name.toLowerCase();
+    if (!want.has(key) || placed.has(key)) continue;
+    const exact = names.find(n => n.toLowerCase() === key);
+    if (exact) {
+      out.push(exact);
+      placed.add(key);
+    }
+  }
+  for (const name of names) {
+    const key = name.toLowerCase();
+    if (!placed.has(key)) out.push(name);
+  }
+  return out;
+}
+
+function farmListSettings(cfg = loadConfig(), options = {}) {
   const fl = cfg.farmList || {};
-  const allLists = normalizeFarmListsFromConfig(fl.lists);
+  let allLists = normalizeFarmListsFromConfig(fl.lists);
+  if (options.gameOrder?.length) {
+    allLists = orderFarmListsByGame(allLists, options.gameOrder);
+  }
   const activeLists = allLists.filter(l => l.enabled).map(l => l.name);
   const min = Math.max(1, Number(fl.intervalMinutesMin) || 5);
   const max = Math.max(min, Number(fl.intervalMinutesMax) || 15);
   return {
     enabled: !!fl.enabled,
+    sendAllMode: !!fl.sendAllMode,
     allLists,
     lists: activeLists,
     activeCount: activeLists.length,
@@ -75,4 +142,6 @@ module.exports = {
   normalizeFarmListEntry,
   normalizeFarmListsFromConfig,
   mergeFarmLists,
+  orderFarmListsByGame,
+  orderActiveNamesByGame,
 };

@@ -23,12 +23,37 @@ const DEFAULT_CONFIG = {
   resourceBonuses: { enabled: false, intervalHours: 8 },
   farmList: {
     enabled: false,
+    sendAllMode: false,
     lists: [
       { name: 'Farm 1', enabled: true },
       { name: 'Farm 2', enabled: true },
     ],
     intervalMinutesMin: 5,
     intervalMinutesMax: 15,
+  },
+  workSleep: {
+    enabled: false,
+    workMinutesMin: 30,
+    workMinutesMax: 60,
+    sleepMinutesMin: 15,
+    sleepMinutesMax: 45,
+  },
+  microPause: {
+    enabled: false,
+    pauseMinutesMin: 2,
+    pauseMinutesMax: 5,
+    intervalMinutesMin: 20,
+    intervalMinutesMax: 45,
+  },
+  dailySchedule: {
+    enabled: false,
+    hours: Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      enabled: false,
+      half0: false,
+      half30: false,
+      proxyIndex: null,
+    })),
   },
   proxy: { enabled: false, server: '', servers: [], rotation: 'round-robin', username: '', password: '', bypass: '' },
 };

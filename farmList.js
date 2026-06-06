@@ -11,8 +11,7 @@ const {
 } = require('./farmListState');
 const {
   farmListSettings,
-  normalizeFarmListsFromConfig,
-  mergeFarmLists,
+  orderActiveNamesByGame,
 } = require('./farmListConfig');
 
 const TAG = 'farmList';
@@ -130,9 +129,8 @@ async function readFarmListEntriesOnPage(page) {
     };
 
     const root = document.querySelector('#rallyPointFarmList') || document;
-    const wrappers = root.querySelectorAll('.farmListWrapper');
 
-    wrappers.forEach(wrapper => {
+    const processWrapper = wrapper => {
       const nameEl = wrapper.querySelector('.farmListName .name');
       const name = nameEl ? (nameEl.textContent || nameEl.innerText) : '';
       if (!name) return;
@@ -153,7 +151,16 @@ async function readFarmListEntriesOnPage(page) {
         && !/disabled/i.test(btn.className));
 
       add(name, { listId, canSend, village });
-    });
+    };
+
+    const villages = root.querySelectorAll('.villageWrapper');
+    if (villages.length) {
+      villages.forEach(vw => {
+        vw.querySelectorAll('.farmListWrapper').forEach(processWrapper);
+      });
+    } else {
+      root.querySelectorAll('.farmListWrapper').forEach(processWrapper);
+    }
 
     if (!entries.length) {
       root.querySelectorAll('.farmListName .name').forEach(el => {
@@ -213,7 +220,12 @@ async function clickSendForListName(page, listName, options = {}) {
       .replace(/[\u200e\u200f\u202a-\u202e]/g, '')
       .trim()
       .replace(/\s+/g, ' ');
+    const canonical = s => norm(s)
+      .toLowerCase()
+      // keep letters/numbers from all languages; normalize punctuation noise
+      .replace(/[^\p{L}\p{N}]+/gu, '');
     const target = norm(targetName).toLowerCase();
+    const targetCanon = canonical(targetName);
     if (!target) return { ok: false, message: 'Empty list name' };
 
     const root = document.querySelector('#rallyPointFarmList') || document;
@@ -231,8 +243,10 @@ async function clickSendForListName(page, listName, options = {}) {
 
     const nameMatches = (pageName, mode) => {
       const n = norm(pageName).toLowerCase();
+      const c = canonical(pageName);
       if (!n || !target) return false;
       if (mode === 'exact') return n === target;
+      if (targetCanon && c && targetCanon === c) return true;
       return n === target || n.includes(target) || target.includes(n);
     };
 
@@ -293,6 +307,12 @@ async function clickSendForListName(page, listName, options = {}) {
     if (!matched.length) {
       matched = wrappers.filter(w => wrapperMatches(w, 'fuzzy'));
       if (matched.length > 1) {
+        // Canonical tie-breaker (handles quotes/slashes/punctuation differences).
+        const canon = matched.filter(w => canonical(wrapperName(w)) === targetCanon);
+        if (canon.length === 1) return clickInWrapper(canon[0]);
+        if (canon.length > 1) matched = canon;
+      }
+      if (matched.length > 1) {
         const names = matched.map(wrapperName).join(', ');
         return {
           ok: false,
@@ -321,19 +341,55 @@ async function clickSendForListName(page, listName, options = {}) {
 const MS_BETWEEN_LIST_SENDS = 2500;
 
 /**
+ * Click Travian's global "Start all farm lists" button.
+ * @returns {Promise<{ ok: boolean, message: string }>}
+ */
+async function clickStartAllFarmLists(page) {
+  const result = await page.evaluate(() => {
+    const isVisible = el => {
+      if (!el || el.disabled) return false;
+      const s = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 4 && r.height > 4;
+    };
+    const root = document.querySelector('#rallyPointFarmList') || document;
+    const candidates = [
+      ...root.querySelectorAll('button.startAllFarmLists, button[class*="startAllFarmLists"]'),
+      ...root.querySelectorAll('button.textButtonV2'),
+    ];
+    for (const btn of candidates) {
+      const text = (btn.innerText || btn.textContent || '').trim();
+      if (!/start\s*all\s*farm\s*lists/i.test(text) && !btn.classList.contains('startAllFarmLists')) continue;
+      if (!isVisible(btn)) continue;
+      btn.click();
+      return { ok: true, message: `Started all farm lists via global button (${text || 'Start all farm lists'})` };
+    }
+    return { ok: false, message: 'Global "Start all farm lists" button not found or disabled' };
+  });
+  if (result.ok) await confirmSendDialog(page);
+  return result;
+}
+
+/**
  * Send every checked farm list in one cycle, then schedule the next cycle.
  * @returns {Promise<{ ok: boolean, status: string, message: string, listName?: string, sentLists?: string[], nextRunAt?: string }>}
  */
+function farmListSettingsWithGameOrder() {
+  const state = readFarmListState();
+  return farmListSettings(loadConfig(), { gameOrder: state?.gameOrder });
+}
+
 async function sendAllCheckedFarmLists(page, options = {}) {
-  const settings = farmListSettings();
+  const settings = farmListSettingsWithGameOrder();
   let active = settings.lists;
+  const requiresCheckedLists = !settings.sendAllMode;
 
   if (options.onlyOne && options.forceIndex != null) {
     const i = Number(options.forceIndex) % Math.max(active.length, 1);
     active = active.length ? [active[i]] : [];
   }
 
-  if (!active.length) {
+  if (requiresCheckedLists && !active.length) {
     return {
       ok: false,
       status: 'skipped',
@@ -343,7 +399,11 @@ async function sendAllCheckedFarmLists(page, options = {}) {
     };
   }
 
-  log.info(TAG, `Sending ${active.length} checked farm list(s): ${active.join(', ')}`);
+  if (settings.sendAllMode) {
+    log.info(TAG, 'Sending farm lists in Start all mode');
+  } else {
+    log.info(TAG, `Sending ${active.length} checked farm list(s): ${active.join(', ')}`);
+  }
 
   if (!(await openFarmListPage(page))) {
     return { ok: false, status: 'failed', message: 'Farm list page not reachable' };
@@ -351,13 +411,70 @@ async function sendAllCheckedFarmLists(page, options = {}) {
 
   let entries = await readFarmListEntriesOnPage(page);
   if (entries.length) {
-    const preview = entries.slice(0, 12).map(e => e.name).join(', ');
-    log.info(TAG, `Lists on page: ${preview}${entries.length > 12 ? '…' : ''}`);
+    const gameOrder = entries.map(e => e.name);
+    const prev = readFarmListState();
+    writeFarmListState({
+      ...prev,
+      gameOrder,
+      intervalMinutesMin: settings.intervalMinutesMin,
+      intervalMinutesMax: settings.intervalMinutesMax,
+    });
+    active = orderActiveNamesByGame(active, gameOrder);
+    const preview = gameOrder.slice(0, 12).join(', ');
+    log.info(TAG, `Lists on page: ${preview}${gameOrder.length > 12 ? '…' : ''}`);
   }
 
   const entriesByName = new Map(
     entries.map(e => [String(e.name || '').toLowerCase(), e]),
   );
+
+  if (settings.sendAllMode) {
+    const startAll = await clickStartAllFarmLists(page);
+    const nextAt = randomNextRunAt(settings.intervalMinutesMin, settings.intervalMinutesMax);
+    const now = new Date();
+    if (!startAll.ok) {
+      writeFarmListState({
+        lastRunAt: now.toISOString(),
+        nextRunAt: nextAt.toISOString(),
+        lastListName: null,
+        lastIndex: 0,
+        intervalMinutesMin: settings.intervalMinutesMin,
+        intervalMinutesMax: settings.intervalMinutesMax,
+      });
+      return {
+        ok: false,
+        status: 'failed',
+        message: startAll.message,
+        listsOnPage: entries.map(e => e.name),
+        sentLists: [],
+        failedLists: [{ name: 'Start all farm lists', message: startAll.message }],
+        nextRunAt: nextAt.toISOString(),
+        nextListName: entries.length ? `all ${entries.length} lists` : 'all farm lists',
+        activeCount: entries.length,
+      };
+    }
+    incrementFarmListSend('Start all farm lists');
+    writeFarmListState({
+      lastRunAt: now.toISOString(),
+      nextRunAt: nextAt.toISOString(),
+      lastListName: 'Start all farm lists',
+      lastIndex: 0,
+      intervalMinutesMin: settings.intervalMinutesMin,
+      intervalMinutesMax: settings.intervalMinutesMax,
+    });
+    return {
+      ok: true,
+      status: 'sent',
+      message: startAll.message,
+      listsOnPage: entries.map(e => e.name),
+      sentLists: entries.map(e => e.name),
+      failedLists: [],
+      nextRunAt: nextAt.toISOString(),
+      nextListName: entries.length ? `all ${entries.length} lists` : 'all farm lists',
+      activeCount: entries.length,
+      listName: entries[0]?.name || 'Start all farm lists',
+    };
+  }
 
   const results = [];
   for (let i = 0; i < active.length; i++) {

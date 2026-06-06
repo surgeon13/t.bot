@@ -15,6 +15,9 @@ const { writeScheduleState } = require('./scheduleState');
 const { readResourceBonusState, resourceBonusSettings } = require('./resourceBonuses');
 const { createTerminalControl, isTaskInterrupted } = require('./terminalControl');
 const { getLastCompletedBonus } = require('./runState');
+const { waitForWorkPhase, syncWorkSleepPhase } = require('./workSleep');
+const { waitForMicroPause, syncMicroPause } = require('./microPause');
+const { waitForDailyScheduleActive, isNowActive, normalizeDailySchedule } = require('./dailySchedule');
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -49,7 +52,7 @@ function nextSchedulerRunAt(h) {
  * @param {{ stop?: boolean, runNow?: boolean, terminal?: object }} control
  * @returns {Promise<'due'|'run'|'disabled'|'stopped'>}
  */
-async function waitUntilNextRun(nextAt, control = {}) {
+async function waitUntilNextRun(nextAt, control = {}, options = {}) {
   while (nextAt.getTime() > Date.now()) {
     if (!loadConfig().schedule?.enabled) {
       log.info(TAG, 'schedule.enabled is false - stopping scheduler');
@@ -60,6 +63,27 @@ async function waitUntilNextRun(nextAt, control = {}) {
       control.runNow = false;
       log.info(TAG, 'Starting next run now');
       return 'run';
+    }
+
+    const sync = syncWorkSleepPhase();
+    if (sync.settings.enabled && !sync.allowed) {
+      const wr = await waitForWorkPhase(control, { bypass: options.bypassSleep });
+      if (wr === 'stopped') return 'stopped';
+      continue;
+    }
+
+    const daily = normalizeDailySchedule();
+    if (daily.enabled && !isNowActive(daily).active) {
+      const dr = await waitForDailyScheduleActive(control);
+      if (dr.stopped) return 'stopped';
+      continue;
+    }
+
+    const mp = syncMicroPause();
+    if (mp.settings.enabled && !mp.allowed) {
+      const mr = await waitForMicroPause(control, { bypass: options.bypassMicroPause });
+      if (mr === 'stopped') return 'stopped';
+      continue;
     }
 
     const left = nextAt.getTime() - Date.now();
@@ -143,6 +167,20 @@ async function runSchedulerLoop(options = {}) {
         return { reason: 'disabled' };
       }
       if (control.stop) return { reason: 'stopped' };
+
+      let bypassSleep = false;
+      if (control.bypassSleepOnce) {
+        bypassSleep = true;
+        control.bypassSleepOnce = false;
+      }
+      const wr = await waitForWorkPhase(control, { bypass: bypassSleep });
+      if (wr === 'stopped') return { reason: 'stopped' };
+
+      const dr = await waitForDailyScheduleActive(control);
+      if (dr.stopped) return { reason: 'stopped' };
+
+      const mr = await waitForMicroPause(control, { bypass: bypassSleep });
+      if (mr === 'stopped') return { reason: 'stopped' };
 
       const h = intervalHours();
       phase = 'running';

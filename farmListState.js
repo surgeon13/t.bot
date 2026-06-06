@@ -31,13 +31,19 @@ function readFarmListState() {
  * @param {number} p.intervalMinutesMax
  */
 function writeFarmListState(p) {
+  const prev = readFarmListState() || {};
   const body = {
-    lastRunAt: p.lastRunAt ?? null,
-    nextRunAt: p.nextRunAt,
-    lastListName: p.lastListName ?? null,
-    lastIndex: p.lastIndex ?? 0,
-    intervalMinutesMin: p.intervalMinutesMin,
-    intervalMinutesMax: p.intervalMinutesMax,
+    lastRunAt: p.lastRunAt !== undefined ? p.lastRunAt : (prev.lastRunAt ?? null),
+    nextRunAt: p.nextRunAt !== undefined ? p.nextRunAt : prev.nextRunAt,
+    lastListName: p.lastListName !== undefined ? p.lastListName : (prev.lastListName ?? null),
+    lastIndex: p.lastIndex !== undefined ? p.lastIndex : (prev.lastIndex ?? 0),
+    intervalMinutesMin: p.intervalMinutesMin !== undefined
+      ? p.intervalMinutesMin
+      : prev.intervalMinutesMin,
+    intervalMinutesMax: p.intervalMinutesMax !== undefined
+      ? p.intervalMinutesMax
+      : prev.intervalMinutesMax,
+    gameOrder: p.gameOrder !== undefined ? p.gameOrder : prev.gameOrder,
     updatedAt: new Date().toISOString(),
   };
   fs.writeFileSync(FILE, JSON.stringify(body, null, 2));
@@ -53,8 +59,9 @@ function randomNextRunAt(minMinutes, maxMinutes) {
 }
 
 function farmListGuiStatus(cfg, state = readFarmListState()) {
-  const settings = farmListSettings(cfg);
-  const { enabled, allLists, lists: activeNames, activeCount, totalCount } = settings;
+  const settings = farmListSettings(cfg, { gameOrder: state?.gameOrder });
+  const { enabled, sendAllMode, allLists, lists: activeNames, activeCount, totalCount } = settings;
+  const targetCount = sendAllMode ? totalCount : activeCount;
   const min = settings.intervalMinutesMin;
   const max = settings.intervalMinutesMax;
 
@@ -63,10 +70,14 @@ function farmListGuiStatus(cfg, state = readFarmListState()) {
     statusLine = 'Farm list runner OFF';
   } else if (!totalCount) {
     statusLine = 'Enabled — load lists from game';
-  } else if (!activeCount) {
-    statusLine = `Enabled — 0/${totalCount} checked`;
+  } else if (!targetCount) {
+    statusLine = sendAllMode
+      ? 'Enabled — load lists from game'
+      : `Enabled — 0/${totalCount} checked`;
   } else if (!embeddedFarmSchedulerActive) {
-    statusLine = `Enabled — ${activeCount}/${totalCount} checked · timer not running`;
+    statusLine = sendAllMode
+      ? `Enabled — Start all mode (${totalCount} total) · timer not running`
+      : `Enabled — ${activeCount}/${totalCount} checked · timer not running`;
   } else if (!state?.nextRunAt) {
     statusLine = 'Starting…';
   } else {
@@ -83,13 +94,14 @@ function farmListGuiStatus(cfg, state = readFarmListState()) {
     }
   }
 
-  const nextListName = activeCount > 1
-    ? `all ${activeCount} checked`
-    : (activeNames[0] || null);
+  const nextListName = sendAllMode
+    ? (totalCount ? `all ${totalCount} lists` : null)
+    : (activeCount > 1 ? `all ${activeCount} checked` : (activeNames[0] || null));
 
   return {
     enabled,
-    listCount: activeCount,
+    sendAllMode,
+    listCount: targetCount,
     activeCount,
     totalCount,
     lists: allLists,

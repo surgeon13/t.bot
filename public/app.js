@@ -133,6 +133,10 @@ function paintStatus(s) {
   } else if (s.loggedIn) {
     dot.className = 'dot ok';
     txt.textContent = `Connected — ${s.username || ''}`;
+  } else if (s.browserSession?.pauseReason) {
+    dot.className = 'dot warn';
+    txt.textContent = s.browserSession.statusLine || 'Browser closed — paused';
+    bonusesSynced = false;
   } else {
     dot.className = 'dot bad';
     txt.textContent = 'Not logged in';
@@ -148,6 +152,12 @@ function paintStatus(s) {
 
   if (s.scheduleStatus) paintScheduleStatus(s.scheduleStatus);
   if (s.scheduleConfig && !scheduleFormDirty) fillScheduleForm(s.scheduleConfig);
+  if (s.workSleepStatus) paintWorkSleepStatus(s.workSleepStatus);
+  if (s.workSleepConfig && !workSleepFormDirty) fillWorkSleepForm(s.workSleepConfig);
+  if (s.microPauseStatus) paintMicroPauseStatus(s.microPauseStatus);
+  if (s.microPauseConfig && !microPauseFormDirty) fillMicroPauseForm(s.microPauseConfig);
+  if (s.dailyScheduleStatus) paintDailyScheduleStatus(s.dailyScheduleStatus);
+  if (s.dailyScheduleConfig && !dailyScheduleFormDirty) fillDailyScheduleForm(s.dailyScheduleConfig);
   if (s.farmListStatus) paintFarmListStatus(s.farmListStatus);
   if (s.farmListConfig && !farmListFormDirty) fillFarmListForm(s.farmListConfig);
 
@@ -163,12 +173,18 @@ function paintStatus(s) {
   if (s.account) paintAccount(s.account);
   maybeRefreshAccountInfo(s);
   if (s.proxyConfig && !proxyFormDirty) fillProxyForm(s.proxyConfig);
-  else if (s.proxyConfig) paintProxyListMarkers(s.proxyConfig, s.proxy);
-  else if (s.proxy) paintProxyListMarkers(null, s.proxy);
+  else if (s.proxyConfig) {
+    paintProxyListMarkers(s.proxyConfig, s.proxy);
+    updateProxyReloadButton(s.proxyConfig);
+  } else if (s.proxy) paintProxyListMarkers(null, s.proxy);
 }
 
 let proxyFormDirty = false;
 let scheduleFormDirty = false;
+let workSleepFormDirty = false;
+let microPauseFormDirty = false;
+let dailyScheduleFormDirty = false;
+let dailyScheduleProxyCount = 0;
 let farmListFormDirty = false;
 let accountAutoRefreshTimer = null;
 let accountAutoRefreshAttempts = 0;
@@ -327,6 +343,371 @@ async function loadScheduleForm() {
   }
 }
 
+function fillWorkSleepForm(cfg) {
+  if (!cfg) return;
+  const en = $('#work-sleep-enabled');
+  if (en) en.checked = !!cfg.enabled;
+  const map = [
+    ['#work-sleep-work-min', cfg.workMinutesMin],
+    ['#work-sleep-work-max', cfg.workMinutesMax],
+    ['#work-sleep-sleep-min', cfg.sleepMinutesMin],
+    ['#work-sleep-sleep-max', cfg.sleepMinutesMax],
+  ];
+  for (const [sel, val] of map) {
+    const el = $(sel);
+    if (el && val != null) el.value = String(val);
+  }
+}
+
+function paintWorkSleepStatus(st) {
+  const line = $('#work-sleep-status-line');
+  const dot = $('#schedule-dot');
+  if (line) {
+    if (st?.enabled) {
+      line.hidden = false;
+      line.textContent = st.statusLine || '—';
+    } else {
+      line.hidden = true;
+      line.textContent = '';
+    }
+  }
+  if (dot && st?.enabled && st.phase === 'sleep') {
+    dot.className = 'schedule-dot warn';
+  }
+}
+
+function collectWorkSleepPayload() {
+  return {
+    enabled: !!$('#work-sleep-enabled')?.checked,
+    workMinutesMin: Number($('#work-sleep-work-min')?.value) || 30,
+    workMinutesMax: Number($('#work-sleep-work-max')?.value) || 60,
+    sleepMinutesMin: Number($('#work-sleep-sleep-min')?.value) || 15,
+    sleepMinutesMax: Number($('#work-sleep-sleep-max')?.value) || 45,
+  };
+}
+
+async function saveWorkSleepForm() {
+  const hint = $('#work-sleep-save-hint');
+  const btn = $('#work-sleep-save');
+  if (btn) btn.disabled = true;
+  if (hint) {
+    hint.className = 'schedule-hint muted';
+    hint.textContent = 'Saving…';
+  }
+  try {
+    const res = await fetch('/api/config/work-sleep', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectWorkSleepPayload()),
+    });
+    const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || 'Save failed');
+    workSleepFormDirty = false;
+    if (data.workSleep) fillWorkSleepForm(data.workSleep);
+    if (data.workSleepStatus) paintWorkSleepStatus(data.workSleepStatus);
+    if (hint) {
+      hint.className = 'schedule-hint ok';
+      hint.textContent = data.message || 'Work/sleep saved';
+    }
+  } catch (err) {
+    if (hint) {
+      hint.className = 'schedule-hint fail';
+      hint.textContent = err.message || 'Could not save work/sleep';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function loadWorkSleepForm() {
+  try {
+    const res = await fetch('/api/config/work-sleep');
+    const data = await parseApiJson(res);
+    if (data.workSleep && !workSleepFormDirty) fillWorkSleepForm(data.workSleep);
+    if (data.workSleepStatus) paintWorkSleepStatus(data.workSleepStatus);
+  } catch {
+    /* server starting */
+  }
+}
+
+function fillMicroPauseForm(cfg) {
+  if (!cfg) return;
+  const en = $('#micro-pause-enabled');
+  if (en) en.checked = !!cfg.enabled;
+  const map = [
+    ['#micro-pause-min', cfg.pauseMinutesMin],
+    ['#micro-pause-max', cfg.pauseMinutesMax],
+    ['#micro-pause-interval-min', cfg.intervalMinutesMin],
+    ['#micro-pause-interval-max', cfg.intervalMinutesMax],
+  ];
+  for (const [sel, val] of map) {
+    const el = $(sel);
+    if (el && val != null) el.value = String(val);
+  }
+}
+
+function paintMicroPauseStatus(st) {
+  const line = $('#micro-pause-status-line');
+  if (!line) return;
+  if (st?.enabled) {
+    line.hidden = false;
+    line.textContent = st.statusLine || '—';
+  } else {
+    line.hidden = true;
+    line.textContent = '';
+  }
+}
+
+function collectMicroPausePayload() {
+  return {
+    enabled: !!$('#micro-pause-enabled')?.checked,
+    pauseMinutesMin: Number($('#micro-pause-min')?.value) || 2,
+    pauseMinutesMax: Number($('#micro-pause-max')?.value) || 5,
+    intervalMinutesMin: Number($('#micro-pause-interval-min')?.value) || 20,
+    intervalMinutesMax: Number($('#micro-pause-interval-max')?.value) || 45,
+  };
+}
+
+async function saveMicroPauseForm() {
+  const hint = $('#micro-pause-save-hint');
+  const btn = $('#micro-pause-save');
+  if (btn) btn.disabled = true;
+  if (hint) {
+    hint.className = 'schedule-hint muted';
+    hint.textContent = 'Saving…';
+  }
+  try {
+    const res = await fetch('/api/config/micro-pause', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectMicroPausePayload()),
+    });
+    const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || 'Save failed');
+    microPauseFormDirty = false;
+    if (data.microPause) fillMicroPauseForm(data.microPause);
+    if (data.microPauseStatus) paintMicroPauseStatus(data.microPauseStatus);
+    if (hint) {
+      hint.className = 'schedule-hint ok';
+      hint.textContent = data.message || 'Random stops saved';
+    }
+  } catch (err) {
+    if (hint) {
+      hint.className = 'schedule-hint fail';
+      hint.textContent = err.message || 'Could not save random stops';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function loadMicroPauseForm() {
+  try {
+    const res = await fetch('/api/config/micro-pause');
+    const data = await parseApiJson(res);
+    if (data.microPause && !microPauseFormDirty) fillMicroPauseForm(data.microPause);
+    if (data.microPauseStatus) paintMicroPauseStatus(data.microPauseStatus);
+  } catch {
+    /* server starting */
+  }
+}
+
+function dailyHourFromDom(hour) {
+  const cell = $(`.daily-hour-cell[data-hour="${hour}"]`);
+  if (!cell) return { hour, enabled: false, half0: false, half30: false, proxyIndex: null };
+  const half0 = cell.querySelector('.daily-half-0')?.checked ?? false;
+  const half30 = cell.querySelector('.daily-half-30')?.checked ?? false;
+  const sel = cell.querySelector('.daily-hour-proxy');
+  let proxyIndex = null;
+  if (sel && sel.value !== '') {
+    const n = Number(sel.value);
+    if (!Number.isNaN(n) && n >= 0) proxyIndex = n;
+  }
+  return {
+    hour,
+    enabled: half0 || half30,
+    half0,
+    half30,
+    proxyIndex,
+  };
+}
+
+function updateDailyHourCellVisual(hour) {
+  const cell = $(`.daily-hour-cell[data-hour="${hour}"]`);
+  if (!cell) return;
+  const half0 = cell.querySelector('.daily-half-0')?.checked;
+  const half30 = cell.querySelector('.daily-half-30')?.checked;
+  cell.classList.toggle('active', !!(half0 || half30));
+}
+
+function renderDailyScheduleGrid(hours) {
+  const grid = $('#daily-schedule-grid');
+  if (!grid) return;
+  grid.replaceChildren();
+  const proxyCount = dailyScheduleProxyCount || 0;
+  const rows = Array.isArray(hours) && hours.length === 24
+    ? hours
+    : Array.from({ length: 24 }, (_, h) => ({ hour: h, half0: false, half30: false, proxyIndex: null }));
+
+  const frag = document.createDocumentFragment();
+  for (const row of rows) {
+    const h = Number(row.hour);
+    if (h < 0 || h > 23) continue;
+    const cell = document.createElement('div');
+    cell.className = 'daily-hour-cell';
+    cell.dataset.hour = String(h);
+    if (row.half0 || row.half30) cell.classList.add('active');
+
+    const label = document.createElement('button');
+    label.type = 'button';
+    label.className = 'daily-hour-label';
+    label.textContent = String(h).padStart(2, '0');
+    label.title = `Toggle full hour ${String(h).padStart(2, '0')}`;
+    label.addEventListener('click', () => {
+      const half0 = cell.querySelector('.daily-half-0');
+      const half30 = cell.querySelector('.daily-half-30');
+      const any = half0?.checked || half30?.checked;
+      const next = !any;
+      if (half0) half0.checked = next;
+      if (half30) half30.checked = next;
+      updateDailyHourCellVisual(h);
+      dailyScheduleFormDirty = true;
+    });
+
+    const mkHalf = (cls, text, checked) => {
+      const lbl = document.createElement('label');
+      lbl.className = 'daily-hour-toggle';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = cls;
+      cb.checked = !!checked;
+      cb.addEventListener('change', () => {
+        updateDailyHourCellVisual(h);
+        dailyScheduleFormDirty = true;
+      });
+      const span = document.createElement('span');
+      span.textContent = text;
+      lbl.append(cb, span);
+      return lbl;
+    };
+
+    const proxySel = document.createElement('select');
+    proxySel.className = 'daily-hour-proxy';
+    proxySel.title = proxyCount > 0
+      ? 'Proxy for active slots in this hour (Off / P1 / P2)'
+      : 'No proxies configured in config.json';
+    const offOpt = document.createElement('option');
+    offOpt.value = '';
+    offOpt.textContent = 'Off';
+    proxySel.append(offOpt);
+    for (let i = 0; i < proxyCount; i++) {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = `P${i + 1}`;
+      proxySel.append(opt);
+    }
+    let pi = row.proxyIndex;
+    if ((pi == null || pi < 0) && row.useProxy) pi = 0;
+    if (pi != null && pi >= 0 && pi < proxyCount) proxySel.value = String(pi);
+    else proxySel.value = '';
+    proxySel.disabled = proxyCount === 0;
+    proxySel.addEventListener('change', () => { dailyScheduleFormDirty = true; });
+
+    cell.append(
+      label,
+      mkHalf('daily-half-0', ':00', row.half0),
+      mkHalf('daily-half-30', ':30', row.half30),
+      proxySel,
+    );
+    frag.append(cell);
+  }
+  grid.append(frag);
+}
+
+function fillDailyScheduleForm(cfg) {
+  if (!cfg) return;
+  if (cfg.proxyCount != null) dailyScheduleProxyCount = Number(cfg.proxyCount) || 0;
+  const en = $('#daily-schedule-enabled');
+  if (en) en.checked = !!cfg.enabled;
+  renderDailyScheduleGrid(cfg.hours || []);
+}
+
+function collectDailySchedulePayload() {
+  const hours = [];
+  for (let h = 0; h < 24; h++) hours.push(dailyHourFromDom(h));
+  return {
+    enabled: !!$('#daily-schedule-enabled')?.checked,
+    hours,
+  };
+}
+
+function paintDailyScheduleStatus(st) {
+  const dot = $('#daily-schedule-dot');
+  const txt = $('#daily-schedule-status-text');
+  if (!dot || !txt) return;
+  if (!st?.enabled) {
+    dot.className = 'daily-schedule-dot off';
+    txt.textContent = st?.statusLine || 'Daily schedule OFF';
+    return;
+  }
+  if (st.activeNow) {
+    dot.className = 'daily-schedule-dot on';
+  } else {
+    dot.className = 'daily-schedule-dot warn';
+  }
+  txt.textContent = st.statusLine || '—';
+  $$('.daily-hour-cell').forEach(cell => cell.classList.remove('now'));
+  if (st.enabled && st.currentHour != null) {
+    const cell = $(`.daily-hour-cell[data-hour="${st.currentHour}"]`);
+    if (cell) cell.classList.add('now');
+  }
+}
+
+async function saveDailyScheduleForm() {
+  const hint = $('#daily-schedule-save-hint');
+  const btn = $('#daily-schedule-save');
+  if (btn) btn.disabled = true;
+  if (hint) {
+    hint.className = 'daily-schedule-hint muted';
+    hint.textContent = 'Saving…';
+  }
+  try {
+    const res = await fetch('/api/config/daily-schedule', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectDailySchedulePayload()),
+    });
+    const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || 'Save failed');
+    dailyScheduleFormDirty = false;
+    if (data.dailySchedule) fillDailyScheduleForm(data.dailySchedule);
+    if (data.dailyScheduleStatus) paintDailyScheduleStatus(data.dailyScheduleStatus);
+    if (hint) {
+      hint.className = 'daily-schedule-hint ok';
+      hint.textContent = data.message || 'Daily schedule saved';
+    }
+    fetchStatus();
+  } catch (err) {
+    if (hint) {
+      hint.className = 'daily-schedule-hint fail';
+      hint.textContent = err.message || 'Could not save daily schedule';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function loadDailyScheduleForm() {
+  try {
+    const res = await fetch('/api/config/daily-schedule');
+    const data = await parseApiJson(res);
+    if (data.dailySchedule && !dailyScheduleFormDirty) fillDailyScheduleForm(data.dailySchedule);
+    if (data.dailyScheduleStatus) paintDailyScheduleStatus(data.dailyScheduleStatus);
+  } catch {
+    /* server starting */
+  }
+}
+
 function paintLifetimeTotals(totals) {
   if (!totals) return;
   setText('#t-time', totals.heroTimeBonuses);
@@ -350,6 +731,7 @@ function paintFarmListStatus(st) {
   const dot = $('#farm-list-dot');
   const txt = $('#farm-list-status-text');
   const line = $('#farm-list-next-line');
+  const nextApprox = $('#farm-list-next-approx');
   if (!dot || !txt) return;
 
   if (st.farmListSends != null) paintFarmListSendTotal(st.farmListSends);
@@ -358,12 +740,20 @@ function paintFarmListStatus(st) {
     dot.className = 'farm-list-dot on';
     const n = st.activeCount ?? st.listCount ?? 0;
     const t = st.totalCount ?? n;
-    txt.textContent = n
-      ? `Runner ON · ${n}/${t} checked`
-      : (t ? 'Runner ON — check lists' : 'Runner ON — load lists');
+    if (st.sendAllMode) {
+      txt.textContent = t
+        ? `Runner ON · Start all mode · ${t} total`
+        : 'Runner ON · Start all mode — load lists';
+    } else {
+      txt.textContent = n
+        ? `Runner ON · ${n}/${t} checked`
+        : (t ? 'Runner ON — check lists' : 'Runner ON — load lists');
+    }
   } else if (st.enabled) {
     dot.className = 'farm-list-dot warn';
-    txt.textContent = 'Runner ON — timer not running';
+    txt.textContent = st.sendAllMode
+      ? 'Runner ON · Start all mode — timer not running'
+      : 'Runner ON — timer not running';
   } else {
     dot.className = 'farm-list-dot off';
     txt.textContent = 'Runner OFF';
@@ -378,6 +768,21 @@ function paintFarmListStatus(st) {
       line.textContent = st.statusLine || '—';
     }
   }
+  if (nextApprox) {
+    const nextTs = st?.nextRunAt ? new Date(st.nextRunAt).getTime() : NaN;
+    if (!Number.isFinite(nextTs)) {
+      nextApprox.textContent = 'Next send approx: —';
+    } else {
+      const mins = Math.max(0, Math.round((nextTs - Date.now()) / 60000));
+      if (mins <= 0) {
+        nextApprox.textContent = 'Next send approx: now';
+      } else if (mins === 1) {
+        nextApprox.textContent = 'Next send approx: ~1 min';
+      } else {
+        nextApprox.textContent = `Next send approx: ~${mins} min`;
+      }
+    }
+  }
 
   updateFarmListRunNowButton(st);
   updateFarmListSendAllButton(st);
@@ -386,31 +791,48 @@ function paintFarmListStatus(st) {
 function updateFarmListRunNowButton(st) {
   const btn = $('#farm-list-run-now');
   if (!btn) return;
-  const active = st?.activeCount ?? st?.listCount ?? 0;
+  const sendAllMode = !!st?.sendAllMode;
+  const active = sendAllMode
+    ? (st?.totalCount ?? st?.listCount ?? 0)
+    : (st?.activeCount ?? st?.listCount ?? 0);
   const on = !!st?.enabled && active > 0;
   btn.disabled = !on;
   btn.title = on
-    ? 'Queue the next full cycle on the runner timer'
-    : 'Turn on Runner, check at least one list, and Save first';
+    ? (sendAllMode
+      ? 'Queue the next cycle using global Start all farm lists'
+      : 'Queue the next full cycle on the runner timer')
+    : (sendAllMode
+      ? 'Turn on Runner, load lists from game, and Save first'
+      : 'Turn on Runner, check at least one list, and Save first');
 }
 
 function updateFarmListSendAllButton(st) {
   const btn = $('#farm-list-send-all');
   if (!btn) return;
-  const active = st?.activeCount ?? st?.listCount ?? 0;
+  const sendAllMode = !!st?.sendAllMode;
+  const active = sendAllMode
+    ? (st?.totalCount ?? st?.listCount ?? 0)
+    : (st?.activeCount ?? st?.listCount ?? 0);
   const can = active > 0 && guiCapabilitiesOk;
   btn.disabled = !can;
   btn.title = can
-    ? `Send all ${active} checked farm list(s) now (one click)`
+    ? (sendAllMode
+      ? `Send all ${active} farm list(s) now via global Start all button`
+      : `Send all ${active} checked farm list(s) now (one click)`)
     : !guiCapabilitiesOk
       ? 'Restart npm run gui and refresh the page'
-      : 'Check at least one list, then Save or Send all';
+      : (sendAllMode
+        ? 'Load lists from game, then Save or Send all'
+        : 'Check at least one list, then Save or Send all');
 }
 
 function updateFarmListSendAllButtonFromForm() {
   const items = collectFarmListItemsFromDom();
+  const sendAllMode = !!$('#farm-list-send-all-mode')?.checked;
   updateFarmListSendAllButton({
+    sendAllMode,
     activeCount: items.filter(l => l.enabled).length,
+    totalCount: items.length,
   });
 }
 
@@ -486,7 +908,9 @@ function collectFarmListItemsFromDom() {
 
 function updateFarmListRunNowButtonFromForm() {
   const items = collectFarmListItemsFromDom();
+  const sendAllMode = !!$('#farm-list-send-all-mode')?.checked;
   updateFarmListRunNowButton({
+    sendAllMode,
     enabled: !!$('#farm-list-enabled')?.checked,
     activeCount: items.filter(l => l.enabled).length,
     listCount: items.filter(l => l.enabled).length,
@@ -504,9 +928,11 @@ function setAllFarmListChecks(checked) {
 function fillFarmListForm(cfg) {
   if (!cfg) return;
   const en = $('#farm-list-enabled');
+  const sendAllMode = $('#farm-list-send-all-mode');
   const min = $('#farm-list-min');
   const max = $('#farm-list-max');
   if (en) en.checked = !!cfg.enabled;
+  if (sendAllMode) sendAllMode.checked = !!cfg.sendAllMode;
   if (min) min.value = String(cfg.intervalMinutesMin ?? 5);
   if (max) max.value = String(cfg.intervalMinutesMax ?? 15);
   renderFarmListItems(cfg.lists || []);
@@ -515,6 +941,7 @@ function fillFarmListForm(cfg) {
 function collectFarmListForm() {
   return {
     enabled: !!$('#farm-list-enabled')?.checked,
+    sendAllMode: !!$('#farm-list-send-all-mode')?.checked,
     lists: collectFarmListItemsFromDom(),
     intervalMinutesMin: Number($('#farm-list-min')?.value) || 5,
     intervalMinutesMax: Number($('#farm-list-max')?.value) || 15,
@@ -651,20 +1078,36 @@ async function discoverFarmLists() {
       if (/Unknown API/i.test(data.message || '')) await checkGuiServerCapabilities();
       throw new Error(msg);
     }
+    const entries = data.entries || [];
     const lists = data.lists || [];
     if (lists.length) {
-      const byName = new Map((data.entries || []).map(e => [String(e.name || '').toLowerCase(), e]));
-      const enriched = lists.map(raw => {
+      const byName = new Map(entries.map(e => [String(e.name || '').toLowerCase(), e]));
+      const gameOrder = entries.length
+        ? entries.map(e => e.name)
+        : lists.map(raw => normalizeFarmListItem(raw)?.name).filter(Boolean);
+      const listByKey = new Map();
+      for (const raw of lists) {
         const base = normalizeFarmListItem(raw);
-        if (!base) return raw;
+        if (base) listByKey.set(base.name.toLowerCase(), base);
+      }
+      const enriched = [];
+      for (const name of gameOrder) {
+        const base = listByKey.get(String(name || '').toLowerCase());
+        if (!base) continue;
         const meta = byName.get(base.name.toLowerCase());
-        if (!meta) return base;
-        return {
+        enriched.push(meta ? {
           ...base,
           village: meta.village || base.village,
           canSendOnPage: meta.canSend,
-        };
-      });
+        } : base);
+      }
+      for (const raw of lists) {
+        const base = normalizeFarmListItem(raw);
+        if (!base) continue;
+        if (!enriched.some(e => e.name.toLowerCase() === base.name.toLowerCase())) {
+          enriched.push(base);
+        }
+      }
       renderFarmListItems(enriched);
       farmListFormDirty = true;
     }
@@ -816,26 +1259,124 @@ function paintProxyListMarkers(cfg, status) {
   });
 }
 
+function normalizeProxyServerClient(server) {
+  const s = String(server || '').trim();
+  if (!s) return '';
+  if (/^(https?|socks5):\/\//i.test(s)) return s;
+  return `http://${s}`;
+}
+
+/** @returns {{ server: string, username?: string, password?: string }|null} */
+function parseOneProxyLine(line) {
+  const s = String(line || '').trim();
+  if (!s || s.startsWith('#')) return null;
+  if (/^(https?|socks5):\/\//i.test(s)) {
+    return { server: normalizeProxyServerClient(s) };
+  }
+
+  const parts = s.split(':');
+  if (parts.length >= 4) {
+    const password = parts.pop();
+    const username = parts.pop();
+    const port = parts.pop();
+    const host = parts.join(':');
+    if (!host || !port || !/^\d+$/.test(port)) return null;
+    return {
+      server: normalizeProxyServerClient(`${host}:${port}`),
+      username: String(username || ''),
+      password: String(password || ''),
+    };
+  }
+
+  if (parts.length === 2 && /^\d+$/.test(parts[1])) {
+    return { server: normalizeProxyServerClient(s) };
+  }
+
+  return { server: normalizeProxyServerClient(s) };
+}
+
+function parseBulkProxyLines(text) {
+  const lines = String(text || '').split(/[\n\r,;]+/).map(x => x.trim()).filter(Boolean);
+  const servers = [];
+  let username;
+  let password;
+  let credsConflict = false;
+
+  for (const line of lines) {
+    const parsed = parseOneProxyLine(line);
+    if (!parsed?.server) continue;
+    servers.push(parsed.server);
+    if (parsed.username != null) {
+      if (username === undefined) {
+        username = parsed.username;
+        password = parsed.password;
+      } else if (username !== parsed.username || password !== parsed.password) {
+        credsConflict = true;
+      }
+    }
+  }
+
+  return {
+    servers: [...new Set(servers)],
+    username,
+    password,
+    credsConflict,
+  };
+}
+
 function addProxyFromInput() {
   const inp = $('#proxy-add-input');
+  const hint = $('#proxy-save-hint');
   if (!inp) return;
   const raw = inp.value.trim();
   if (!raw) return;
 
-  const parts = raw.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
-  const merged = [...new Set([...collectProxyServersFromDom(), ...parts])];
+  const { servers: newServers, username, password, credsConflict } = parseBulkProxyLines(raw);
+  if (!newServers.length) {
+    if (hint) {
+      hint.className = 'proxy-hint fail';
+      hint.textContent = 'No valid proxies — use host:port or host:port:user:pass per line';
+    }
+    return;
+  }
+
+  const existing = collectProxyServersFromDom();
+  const merged = [...new Set([...existing, ...newServers])];
+  const added = merged.length - existing.length;
+
   renderProxyList(merged, {
     serverIndex: 0,
     rotation: $('#proxy-rotation')?.value || 'round-robin',
   });
+  updateProxyPoolMeta();
+
+  if (username != null && !credsConflict) {
+    const userEl = $('#proxy-username');
+    const passEl = $('#proxy-password');
+    if (userEl) userEl.value = username;
+    if (passEl) passEl.value = password;
+  }
+
   inp.value = '';
   proxyFormDirty = true;
+  if (hint) {
+    hint.className = 'proxy-hint ok';
+    let msg = `Added ${added} proxy${added === 1 ? '' : 'ies'}`;
+    const dupes = newServers.length - added;
+    if (dupes > 0) msg += ` (${dupes} duplicate${dupes === 1 ? '' : 's'} skipped)`;
+    if (credsConflict) msg += ' — mixed credentials; set User/Pass manually';
+    else if (username != null) msg += ' · user/pass filled';
+    msg += ' — click Save';
+    hint.textContent = msg;
+  }
 }
 
 function paintAccount(a) {
   const player = $('#acc-player');
   const login = $('#acc-login');
   const ip = $('#acc-ip');
+  const ipLbl = $('#acc-ip-lbl');
+  const ipSub = $('#acc-ip-sub');
   if (!player || !login || !ip) return;
 
   player.textContent = a.playerName || (a.loggedIn ? 'Loading…' : '—');
@@ -846,18 +1387,73 @@ function paintAccount(a) {
   login.title = a.serverUrl || '';
 
   if (a.publicIp) {
-    ip.textContent = a.publicIp;
-    ip.title = a.ipSource ? `Via ${a.ipSource}` : 'Outbound IP seen by the browser';
+    const matchMark = a.ipViaProxy && a.ipMatchesProxy ? ' ✓' : '';
+    ip.textContent = `${a.publicIp}${matchMark}`;
+    ip.classList.toggle('ip-via-proxy', !!a.ipViaProxy);
     ip.classList.remove('fail');
+
+    if (a.ipViaProxy) {
+      if (ipLbl) ipLbl.textContent = 'Proxy IP';
+      const pool = a.activeProxyCount > 1
+        ? `Proxy ${(a.activeProxyIndex ?? 0) + 1}/${a.activeProxyCount}`
+        : 'Proxy active';
+      const host = a.activeProxyServer ? a.activeProxyServer.replace(/^https?:\/\//i, '') : '';
+      if (ipSub) {
+        ipSub.hidden = false;
+        ipSub.textContent = host
+          ? `${pool} · ${host} — this is what Travian sees (not your home IP)`
+          : `${pool} — egress IP through proxy (not your home IP)`;
+      }
+      ip.title = [
+        'Outbound IP through the active proxy (what Travian and ipify see).',
+        a.activeProxyDisplay ? `Active: ${a.activeProxyDisplay}` : '',
+        a.ipMatchesProxy ? 'Matches active proxy host.' : 'Proxy host may differ from egress IP on some providers.',
+        a.ipSource ? `Checked via ${a.ipSource}` : '',
+      ].filter(Boolean).join(' ');
+    } else {
+      if (ipLbl) ipLbl.textContent = 'Direct IP';
+      if (ipSub) {
+        ipSub.hidden = false;
+        ipSub.textContent = 'No proxy — your real outbound IP';
+      }
+      ip.title = a.ipSource
+        ? `Direct outbound IP (proxy off). Checked via ${a.ipSource}`
+        : 'Direct outbound IP — proxy is off';
+    }
   } else if (a.ipError) {
+    if (ipLbl) ipLbl.textContent = a.ipViaProxy ? 'Proxy IP' : 'Outbound IP';
+    if (ipSub) ipSub.hidden = true;
     ip.textContent = 'Unavailable';
     ip.title = `${a.ipError} — click Refresh to retry`;
+    ip.classList.remove('ip-via-proxy');
     ip.classList.add('fail');
   } else {
+    if (ipLbl) ipLbl.textContent = 'Outbound IP';
+    if (ipSub) ipSub.hidden = true;
     ip.textContent = '—';
-    ip.title = 'Log in and refresh';
-    ip.classList.remove('fail');
+    ip.title = 'Log in and click Refresh';
+    ip.classList.remove('ip-via-proxy', 'fail');
   }
+}
+
+function hasStoredProxiesInCfg(cfg) {
+  if (!cfg) return false;
+  if (cfg.hasStored != null) return !!cfg.hasStored;
+  return proxyServersFromCfg(cfg).length > 0
+    || !!(cfg.username && String(cfg.username).trim())
+    || !!cfg.hasPassword
+    || !!(cfg.bypass && String(cfg.bypass).trim());
+}
+
+function updateProxyReloadButton(cfg) {
+  const btn = $('#proxy-reload');
+  if (!btn) return;
+  const stored = hasStoredProxiesInCfg(cfg);
+  btn.hidden = false;
+  btn.disabled = !stored;
+  btn.title = stored
+    ? 'Discard unsaved edits and reload proxy pool and settings from config.json'
+    : 'No proxy settings saved in config.json yet';
 }
 
 function fillProxyForm(cfg) {
@@ -887,19 +1483,79 @@ function fillProxyForm(cfg) {
       if (passHint) passHint.textContent = 'No proxy password saved yet. Type one here only if your proxy requires it.';
     }
   }
+  updateProxyReloadButton(cfg);
+  dailyScheduleProxyCount = cfg.serverCount ?? proxyServersFromCfg(cfg).length;
 }
 
-async function loadProxyForm() {
+async function loadProxyForm(options = {}) {
+  const hint = $('#proxy-save-hint');
+  const btn = $('#proxy-reload');
+  if (options.showFeedback && btn) btn.disabled = true;
+  let loadedCfg = null;
   try {
     const res = await fetch('/api/config/proxy');
-    const data = await res.json();
-    if (data.proxy) {
-      fillProxyForm(data.proxy);
-      proxyFormDirty = false;
+    const data = await parseApiJson(res);
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.message || `Server error (${res.status})`);
     }
-  } catch {
-    /* ignore */
+    if (!data.proxy) {
+      throw new Error('No proxy settings in server response');
+    }
+    loadedCfg = data.proxy;
+    fillProxyForm(data.proxy);
+    proxyFormDirty = false;
+    if (options.showFeedback) {
+      const n = proxyServersFromCfg(data.proxy).length;
+      if (hint) {
+        hint.className = 'proxy-hint ok';
+        if (n) {
+          hint.textContent = `Reloaded ${n} stored proxy${n === 1 ? '' : 'ies'} from config.json`;
+        } else if (data.proxy.hasStored) {
+          hint.textContent = 'Reloaded proxy settings from config.json (no proxy hosts in pool — add hosts or restore proxy.servers in config.json)';
+        } else {
+          hint.textContent = 'Reloaded proxy settings from config.json';
+        }
+      }
+      void loadDailyScheduleForm();
+      fetchStatus();
+    }
+    return true;
+  } catch (err) {
+    updateProxyReloadButton({});
+    if (options.showFeedback && hint) {
+      hint.className = 'proxy-hint fail';
+      hint.textContent = err?.message || 'Could not reload from config.json';
+    }
+    return false;
+  } finally {
+    if (loadedCfg) updateProxyReloadButton(loadedCfg);
+    if (options.showFeedback && btn) btn.disabled = !hasStoredProxiesInCfg(loadedCfg || {});
   }
+}
+
+async function reloadProxyFromConfig() {
+  const btn = $('#proxy-reload');
+  if (btn?.disabled) {
+    const hint = $('#proxy-save-hint');
+    if (hint) {
+      hint.className = 'proxy-hint muted';
+      hint.textContent = 'No proxy settings saved in config.json yet';
+    }
+    return;
+  }
+  if (proxyFormDirty) {
+    const n = collectProxyServersFromDom().length;
+    const storedRes = await fetch('/api/config/proxy').then(r => parseApiJson(r)).catch(() => null);
+    const storedN = storedRes?.proxy ? proxyServersFromCfg(storedRes.proxy).length : 0;
+    const ok = window.confirm(
+      storedN
+        ? `Discard ${n} unsaved proxy change${n === 1 ? '' : 's'} and reload ${storedN} stored `
+          + `proxy${storedN === 1 ? '' : 'ies'} from config.json?`
+        : 'Discard unsaved proxy edits and reload settings from config.json?',
+    );
+    if (!ok) return;
+  }
+  await loadProxyForm({ showFeedback: true });
 }
 
 async function saveProxyForm(ev) {
@@ -1787,12 +2443,23 @@ $('#adventures-list')?.addEventListener('click', ev => {
 $('#relogin').addEventListener('click', relogin);
 $('#quit-bot')?.addEventListener('click', quitBot);
 $('#test-proxy')?.addEventListener('click', testProxy);
+$('#proxy-reload')?.addEventListener('click', reloadProxyFromConfig);
 $('#refresh-account')?.addEventListener('click', refreshAccount);
 $('#proxy-form')?.addEventListener('submit', saveProxyForm);
 $('#proxy-form')?.addEventListener('input', () => { proxyFormDirty = true; });
 $('#schedule-form')?.addEventListener('submit', saveScheduleForm);
 $('#schedule-form')?.addEventListener('input', () => { scheduleFormDirty = true; });
 $('#schedule-run-now')?.addEventListener('click', runSchedulerNow);
+$('#work-sleep-save')?.addEventListener('click', saveWorkSleepForm);
+$('#micro-pause-save')?.addEventListener('click', saveMicroPauseForm);
+$('#daily-schedule-save')?.addEventListener('click', saveDailyScheduleForm);
+$('#daily-schedule-enabled')?.addEventListener('change', () => { dailyScheduleFormDirty = true; });
+$('#work-sleep-enabled')?.addEventListener('change', () => { workSleepFormDirty = true; });
+$('#micro-pause-enabled')?.addEventListener('change', () => { microPauseFormDirty = true; });
+$$('#work-sleep-work-min, #work-sleep-work-max, #work-sleep-sleep-min, #work-sleep-sleep-max')
+  .forEach(el => el.addEventListener('input', () => { workSleepFormDirty = true; }));
+$$('#micro-pause-min, #micro-pause-max, #micro-pause-interval-min, #micro-pause-interval-max')
+  .forEach(el => el.addEventListener('input', () => { microPauseFormDirty = true; }));
 $('#farm-list-save')?.addEventListener('click', saveFarmListForm);
 $('#farm-list-form')?.addEventListener('submit', ev => {
   ev.preventDefault();
@@ -1804,6 +2471,11 @@ $('#farm-list-items')?.addEventListener('change', () => {
   updateFarmListRunNowButtonFromForm();
   updateFarmListSendAllButtonFromForm();
 });
+$('#farm-list-send-all-mode')?.addEventListener('change', () => {
+  farmListFormDirty = true;
+  updateFarmListRunNowButtonFromForm();
+  updateFarmListSendAllButtonFromForm();
+});
 $('#farm-list-run-now')?.addEventListener('click', runFarmListNow);
 $('#farm-list-send-all')?.addEventListener('click', sendAllFarmListsNow);
 $('#farm-list-discover')?.addEventListener('click', discoverFarmLists);
@@ -1811,7 +2483,7 @@ $('#farm-list-check-all')?.addEventListener('click', () => setAllFarmListChecks(
 $('#farm-list-check-none')?.addEventListener('click', () => setAllFarmListChecks(false));
 $('#proxy-add-btn')?.addEventListener('click', addProxyFromInput);
 $('#proxy-add-input')?.addEventListener('keydown', ev => {
-  if (ev.key === 'Enter') {
+  if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
     ev.preventDefault();
     addProxyFromInput();
   }
@@ -1830,37 +2502,6 @@ $('#proxy-rotation')?.addEventListener('change', () => {
   );
 });
 $('#clear-log').addEventListener('click', () => { logEl.innerHTML = ''; });
-
-function initHeroDropdown() {
-  const root = $('#hero-dropdown');
-  const toggle = $('#hero-dropdown-toggle');
-  const panel = $('#hero-dropdown-panel');
-  if (!root || !toggle || !panel) return;
-
-  const docked = root.classList.contains('hero-dropdown--dock');
-
-  const setOpen = open => {
-    root.classList.toggle('open', open);
-    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-    panel.hidden = !open;
-  };
-
-  setOpen(docked || root.classList.contains('open'));
-
-  toggle.addEventListener('click', () => {
-    setOpen(!root.classList.contains('open'));
-  });
-
-  panel.addEventListener('click', ev => ev.stopPropagation());
-
-  document.addEventListener('click', ev => {
-    if (!root.contains(ev.target)) setOpen(false);
-  });
-
-  document.addEventListener('keydown', ev => {
-    if (ev.key === 'Escape') setOpen(false);
-  });
-}
 
 const THEME_STORAGE_KEY = 'tbot-theme';
 
@@ -1895,9 +2536,12 @@ function initTheme() {
 }
 
 initTheme();
-initHeroDropdown();
+updateProxyReloadButton({});
 loadProxyForm();
 loadScheduleForm();
+loadWorkSleepForm();
+loadMicroPauseForm();
+loadDailyScheduleForm();
 loadFarmListForm();
 checkGuiServerCapabilities();
 document.addEventListener('visibilitychange', () => {
