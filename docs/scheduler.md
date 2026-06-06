@@ -29,6 +29,26 @@ Every cycle calls the same logic as **`npm run bonuses`** (`claimJob.runClaimAll
 
 Then the browser closes. The scheduler waits until the next run time, then repeats.
 
+## Automation pause gates (0.9.5+)
+
+Before each cycle (and while waiting), the scheduler checks **in order**:
+
+1. **Work/sleep** — if `workSleep.enabled` and currently in a sleep phase, wait until work resumes.  
+2. **Daily schedule** — if `dailySchedule.enabled` and the current half-hour slot is off, wait until the next active slot.  
+3. **Micro pause** — if `microPause.enabled` and a random pause is due, wait until it ends.
+
+The same logic applies to the **farm list timer** in the GUI (`farmListScheduler.js`).
+
+| Action | Bypass work/sleep? | Bypass micro pause? | Bypass daily off-hours? |
+|--------|-------------------|---------------------|-------------------------|
+| **Run now** (bonus scheduler) | Yes (once) | Yes (once) | **No** |
+| **Run now** / **Send all** (farm) | Yes | No | **No** |
+| Manual bonus / adventure buttons | Yes | Yes | Opens browser if needed |
+
+CLI **`npm run schedule`** uses the same gate chain as the embedded GUI scheduler.
+
+When daily schedule or work/sleep closes the browser, the next allowed cycle calls `ensureSession()` to log in again (with the proxy chosen for the current slot).
+
 ## Timing
 
 | Setting | Default | Role |

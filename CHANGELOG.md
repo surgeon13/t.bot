@@ -6,6 +6,37 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 
 _(nothing yet)_
 
+## 0.9.5 — 2026-06-05
+
+### Added
+
+- **Work/sleep rhythm** — random work windows (automation allowed) and sleep windows (bonus + farm schedulers wait). GUI row in the scheduler panel; state in `data/work-sleep-state.json`. Config: `workSleep`.
+- **Random micro-pauses** — brief strict stops between automated runs (`microPause`). Pauses schedulers only; browser may stay open. State in `data/micro-pause-state.json`.
+- **Daily schedule** — local-time 24-hour grid with `:00` / `:30` toggles per hour. When enabled, bonus and farm timers run only in active half-hour slots.
+- **Per-hour proxy** — daily schedule **Off** = direct connection; **P1** / **P2** = proxy pool index for that hour. Browser reconnects automatically when the slot proxy changes.
+- **Session gate** — GUI closes the browser during work/sleep sleep phase and daily-schedule off-hours; re-opens on the next allowed action. Session strip shows amber pause status.
+- **Proxy bulk paste** — paste `host:port:user:pass` lines in the proxy panel; **Load from config** reloads the pool from disk.
+- **Farm list send-all mode** — optional Travian **Start all farm lists** button instead of per-list clicks.
+
+### Changed
+
+- **Farm list** — each cycle sends **all checked** lists (game DOM order), not one round-robin list per cycle. List entries are `{ name, enabled }` objects.
+- **Bonus and farm schedulers** — wait for work/sleep phase, daily schedule slot, then micro pause (in that order) before each run.
+- **Run now** — skips work/sleep and micro pause once; **does not** bypass daily schedule off-hours.
+- **Proxy IP display** — account bar shows **Proxy IP** vs **Direct IP** with active pool index.
+- **Scheduler panel layout** — full-width row below account bar (work/sleep, random stops, daily schedule grid).
+- **`config.example.json`** — `workSleep`, `microPause`, `dailySchedule`, `farmList.sendAllMode`, object-shaped `farmList.lists`.
+
+### Fixed
+
+- Daily schedule proxy now applies for the whole active slot (not global round-robin when **Off** is selected).
+- Browser reconnects when the scheduled proxy slot changes at hour / `:30` boundaries.
+- Scheduler status dot no longer overwritten by work/sleep paint logic.
+
+### Docs
+
+- Updated [docs/configuration.md](docs/configuration.md), [docs/gui.md](docs/gui.md), [docs/scheduler.md](docs/scheduler.md), [docs/architecture.md](docs/architecture.md), [README.md](README.md).
+
 ## 0.9.4 — 2026-05-28
 
 ### Added

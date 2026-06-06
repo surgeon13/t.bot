@@ -2,6 +2,8 @@
 
 All runtime options live in **`config.json`** at the project root. Never commit the real file.
 
+**Version 0.9.5** — see [CHANGELOG.md](../CHANGELOG.md) for release history.
+
 ### First-time config
 
 If **`config.json` does not exist**, the first call to `loadConfig()` (any command that starts the bot) will:
@@ -43,6 +45,34 @@ copy config.example.json config.json
   "resourceBonuses": {
     "enabled": false,
     "intervalHours": 8
+  },
+  "farmList": {
+    "enabled": false,
+    "sendAllMode": false,
+    "lists": [
+      { "name": "Farm 1", "enabled": true },
+      { "name": "Farm 2", "enabled": true }
+    ],
+    "intervalMinutesMin": 5,
+    "intervalMinutesMax": 15
+  },
+  "workSleep": {
+    "enabled": false,
+    "workMinutesMin": 30,
+    "workMinutesMax": 60,
+    "sleepMinutesMin": 15,
+    "sleepMinutesMax": 45
+  },
+  "microPause": {
+    "enabled": false,
+    "pauseMinutesMin": 2,
+    "pauseMinutesMax": 5,
+    "intervalMinutesMin": 20,
+    "intervalMinutesMax": 45
+  },
+  "dailySchedule": {
+    "enabled": false,
+    "hours": []
   }
 }
 ```
@@ -114,14 +144,15 @@ See **[farm-list.md](farm-list.md)** for GUI usage.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `farmList.enabled` | boolean | `false` | Enable round-robin farm list sends in the GUI. |
-| `farmList.lists` | string[] | `[]` | Farm list names as shown in Travian. |
-| `farmList.intervalMinutesMin` | number | `5` | Minimum minutes until the next send. |
+| `farmList.enabled` | boolean | `false` | Enable the farm list timer in the GUI. |
+| `farmList.sendAllMode` | boolean | `false` | When `true`, click Travian’s global **Start all farm lists** instead of sending each checked list individually. |
+| `farmList.lists` | object[] | `[]` | `{ "name": "Farm 1", "enabled": true }` — names as shown in Travian; checked lists are sent each cycle. |
+| `farmList.intervalMinutesMin` | number | `5` | Minimum minutes until the next send cycle. |
 | `farmList.intervalMinutesMax` | number | `15` | Maximum minutes (random delay in range). |
 
 ### Work / sleep rhythm (`workSleep`)
 
-Alternates **work** windows (automation allowed) and **sleep** windows (farm list + bonus schedulers pause). Each window length is random between min and max **minutes**.
+Alternates **work** windows (automation allowed) and **sleep** windows (farm list + bonus schedulers pause). Each window length is random between min and max **minutes**. The GUI may close the browser during sleep (see [gui.md](gui.md)).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -132,6 +163,42 @@ Alternates **work** windows (automation allowed) and **sleep** windows (farm lis
 | `workSleep.sleepMinutesMax` | number | `45` | Maximum sleep window (≥ min). |
 
 Phase timing is stored in **`data/work-sleep-state.json`** (`phase`, `phaseEndsAt`). Manual GUI actions (**Run now**, **Send all**, single bonus buttons) are not blocked during sleep.
+
+### Random micro-pauses (`microPause`)
+
+Short random **strict stops** between automated scheduler runs. Unlike work/sleep, micro pauses do **not** close the browser — they only delay the next bonus or farm cycle.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `microPause.enabled` | boolean | `false` | Enable random micro-pauses. |
+| `microPause.pauseMinutesMin` | number | `2` | Minimum pause length (minutes). |
+| `microPause.pauseMinutesMax` | number | `5` | Maximum pause length (≥ min). |
+| `microPause.intervalMinutesMin` | number | `20` | Minimum time between pauses (minutes). |
+| `microPause.intervalMinutesMax` | number | `45` | Maximum interval (≥ min). |
+
+State: **`data/micro-pause-state.json`**. **Run now** on bonus or farm scheduler bypasses the next micro pause once (same flag as work/sleep bypass).
+
+### Daily schedule (`dailySchedule`)
+
+Local-time **half-hour slots** (00:00–23:30). When enabled, bonus and farm schedulers run only in toggled slots. The GUI closes the browser outside active slots.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `dailySchedule.enabled` | boolean | `false` | Master switch for slot gating. |
+| `dailySchedule.hours` | object[] | `[]` | One entry per hour `0`–`23` (auto-filled if empty). |
+
+Each hour object:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `hour` | number | `0`–`23` |
+| `half0` | boolean | Active for `:00`–`:29` |
+| `half30` | boolean | Active for `:30`–`:59` |
+| `proxyIndex` | number \| null | `null` = **Off** (direct connection during this slot); `0` = P1, `1` = P2, … from `proxy.servers` |
+
+When daily schedule is **enabled** and the current slot is **active**, proxy choice comes from the hour row — not from global `proxy.rotation`. When daily schedule is **disabled**, global proxy settings apply as before.
+
+**Run now** does **not** bypass daily off-hours; schedulers wait until the next active slot.
 
 ### Resource bonuses (`resourceBonuses`)
 
@@ -177,7 +244,15 @@ Updated by `scheduler.js` for the menu’s “next run” line. Safe to delete; 
 
 ### `data/farm-list-state.json`
 
-Written by `farmList.js` / `farmListState.js` when the farm list runner is used. Tracks round-robin index, last list sent, and `nextRunAt` for the GUI status line.
+Written by `farmList.js` / `farmListState.js` when the farm list runner is used. Tracks checked list count, send-all mode, `nextRunAt`, and last send for the GUI status line.
+
+### `data/work-sleep-state.json`
+
+Work/sleep phase (`work` | `sleep`) and `phaseEndsAt`. Safe to delete; a new work phase starts on next scheduler tick or when you re-enable work/sleep in the GUI.
+
+### `data/micro-pause-state.json`
+
+Next scheduled micro-pause time. Safe to delete.
 
 ## Menu settings (`npm start` → **S**)
 

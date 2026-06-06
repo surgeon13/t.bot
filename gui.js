@@ -119,6 +119,9 @@ const GUI_FEATURES = [
   'farm-list-send',
   'farm-list-send-all',
   'adventures-send',
+  'work-sleep',
+  'micro-pause',
+  'daily-schedule',
 ];
 
 /* --------------------------------------------------------------------- */

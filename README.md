@@ -1,23 +1,25 @@
 # t.bot
 
-**Version 0.9.4**
+**Version 0.9.5**
 
 Node.js + [Playwright](https://playwright.dev/) helper for **Travian Legends** video bonuses: hero adventure **time** and **danger** reductions, plus **+15%** Wood / Clay / Iron / Crop production from the shop **Advantages** tab.
 
-The bot watches the required video ads and clicks through Travian’s dialogs. The **web GUI** can send your hero to the **shortest** available adventure on demand; scheduled/CLI bonus runs still do **not** auto-send. It does not build villages or control troops.
+The bot watches the required video ads and clicks through Travian’s dialogs. The **web GUI** can send your hero to the **shortest** available adventure on demand, run **farm lists** on a timer, and shape automation with **work/sleep**, **daily schedules**, and **per-hour proxies**. Scheduled bonus runs do **not** auto-send the hero. It does not build villages or control troops.
 
 > Use only in line with [Travian’s](https://www.travian.com/) terms of service and your local rules.
 
-## Features (0.9.3)
+## Features (0.9.5)
 
-- **Web GUI** — per-bonus buttons, hero stats, adventures list, **farm list round-robin**, live log, **Claim all available resources**, **Quit bot**
+- **Web GUI** — per-bonus buttons, hero stats, adventures list, **farm list** runner, live log, **Claim all available resources**, **Quit bot**
+- **Work/sleep rhythm** — random work and sleep windows; schedulers pause during sleep
+- **Daily schedule** — half-hour slots (local time); optional **Off / P1 / P2** proxy per hour
+- **Random micro-pauses** — brief strict stops between automated runs
+- **Session gate** — browser closes during sleep/off-hours; reconnects when allowed
 - **Embedded scheduler** — periodic runs inside the GUI process (or `npm run schedule` in a second terminal)
-- **Proxy pool** — multiple servers with round-robin / random / sticky rotation
+- **Proxy pool** — multiple servers, bulk paste, rotation; daily schedule can override per hour
 - **GUI themes** — Dark, Light, Ocean, Peach, Auto
 - **Headless by default** — optional visible browser; prefers installed Chrome for video ads
-- **Optional HTTP/SOCKS5 proxy** — route all browser traffic through `config.json` → `proxy`
 - **CLI menu**, **one-shot** scripts, and **scheduler** loop
-- **Resource bonus polling** — claimable vs active buff + countdown timers; scoped polls avoid opening the shop after hero-only actions
 - **Runtime state in `data/`** — logs and JSON state files (auto-migrated from project root)
 - **Debug helpers** — snapshots under `debug/` and `/api/debug/*` when tuning selectors
 
@@ -126,6 +128,11 @@ npm run gui
 | `resourceBonuses.intervalHours` | `8` | Between scheduled resource batch attempts |
 | `schedule.enabled` | `false` | Enables periodic `npm run schedule` |
 | `schedule.intervalHours` | `3` | Between full bonus runs |
+| `workSleep.enabled` | `false` | Random work/sleep rhythm for schedulers |
+| `microPause.enabled` | `false` | Random brief pauses between automated runs |
+| `dailySchedule.enabled` | `false` | Only run schedulers in enabled half-hour slots |
+| `farmList.enabled` | `false` | Farm list timer in GUI |
+| `farmList.sendAllMode` | `false` | Use Travian **Start all farm lists** button |
 
 See [docs/configuration.md](docs/configuration.md) for every field and state file.
 
@@ -143,7 +150,10 @@ See [docs/configuration.md](docs/configuration.md) for every field and state fil
 | `heroStats.js` | Hero panel for GUI |
 | `claimJob.js` | One-shot browser session for CLI |
 | `claim-all-bonuses.js` / `claim-resource-bonuses.js` | CLI entry wrappers |
-| `scheduler.js` / `scheduleState.js` | Periodic runs |
+| `scheduler.js` / `scheduleState.js` | Periodic bonus runs |
+| `farmList.js` / `farmListScheduler.js` | Farm list sends + timer |
+| `workSleep.js` / `microPause.js` / `dailySchedule.js` | Automation pause gates |
+| `sessionGate.js` | Browser keep-open policy (GUI) |
 | `terminalControl.js` | `status` / `stop` / `run` during tasks |
 | `paths.js` | `data/`, `debug/`, config paths; legacy file migration |
 | `logger.js` / `data/bot.log` | Logging (+ GUI SSE) |

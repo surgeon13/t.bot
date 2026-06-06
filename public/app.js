@@ -205,7 +205,25 @@ function maybeRefreshAccountInfo(s) {
   }, 2500);
 }
 
+let lastScheduleStatus = null;
+let lastWorkSleepStatus = null;
+
+/** Amber dot when periodic run is due or work/sleep is in sleep phase. */
+function applyScheduleDotExtras() {
+  const dot = $('#schedule-dot');
+  if (!dot || !lastScheduleStatus) return;
+  if (lastWorkSleepStatus?.enabled && lastWorkSleepStatus.phase === 'sleep') {
+    dot.className = 'schedule-dot warn';
+    return;
+  }
+  if (lastScheduleStatus.periodicEnabled && lastScheduleStatus.periodicNextAt) {
+    const due = new Date(lastScheduleStatus.periodicNextAt).getTime() <= Date.now();
+    if (due) dot.className = 'schedule-dot warn';
+  }
+}
+
 function paintScheduleStatus(st) {
+  lastScheduleStatus = st;
   const dot = $('#schedule-dot');
   const txt = $('#schedule-status-text');
   const periodicLine = $('#schedule-periodic-line');
@@ -231,6 +249,7 @@ function paintScheduleStatus(st) {
   }
 
   updateScheduleRunNowButton(st);
+  applyScheduleDotExtras();
 }
 
 function updateScheduleRunNowButton(st) {
@@ -360,8 +379,8 @@ function fillWorkSleepForm(cfg) {
 }
 
 function paintWorkSleepStatus(st) {
+  lastWorkSleepStatus = st;
   const line = $('#work-sleep-status-line');
-  const dot = $('#schedule-dot');
   if (line) {
     if (st?.enabled) {
       line.hidden = false;
@@ -371,9 +390,7 @@ function paintWorkSleepStatus(st) {
       line.textContent = '';
     }
   }
-  if (dot && st?.enabled && st.phase === 'sleep') {
-    dot.className = 'schedule-dot warn';
-  }
+  applyScheduleDotExtras();
 }
 
 function collectWorkSleepPayload() {

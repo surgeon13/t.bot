@@ -41,10 +41,10 @@ Automatic bonus runs are configured in the **Scheduler** panel (account bar). Wh
 ### Session strip
 
 - **Green** — logged in, idle.  
-- **Amber** — action in progress (only one browser task at a time).  
+- **Amber** — action in progress (only one browser task at a time), **or** browser closed during work/sleep sleep / daily-schedule off-hours.  
 - **Red** — login failed; use **↻ Re-login**.  
 
-Shows the configured username and the next scheduled resource bonus line when available.
+Shows the configured username and the next scheduled resource bonus line when available. When paused, the strip explains why (e.g. “Work/sleep — sleeping” or “Daily schedule — outside slot”).
 
 | Button | Action |
 |--------|--------|
@@ -59,7 +59,7 @@ After a single hero bonus click, only hero status is re-polled (Adventures page)
 |-------|--------|
 | **Player** | In-game name read from the Travian UI after login |
 | **Login** | `config.json` username (account email/name used to log in) |
-| **IP** | Public outbound IP as seen by the browser (through the proxy when enabled) |
+| **Proxy IP** / **Direct IP** | Public outbound IP through the active proxy or direct connection; subtitle shows pool index when proxied |
 
 **Refresh** calls `POST /api/account/refresh` to re-read name and IP without a full re-login.
 
@@ -76,6 +76,8 @@ After a single hero bonus click, only hero status is re-polled (Adventures page)
 | Green/red edge | Last test result for the active proxy |
 
 **Rotation** — `round-robin`, `random`, or `sticky` (always first). Shared username/password/bypass for every address in the pool.
+
+**Bulk paste** — textarea below the pool: one proxy per line as `host:port:user:pass` (Ctrl+Enter to add). **Load from config** reloads the saved pool from `config.json` without retyping.
 
 **Save** — writes `config.json` (`PUT /api/config/proxy`), closes the session; **Re-login** to apply the next proxy.
 
@@ -94,7 +96,9 @@ Shows connectivity state:
 
 ### Account bar — Scheduler
 
-Inline on the same row as **Player** / **Login** / **IP** (fills the rest of the bar to the right edge). Controls the same options as menu **(S)** / `config.json` → `schedule` and `resourceBonuses`:
+Full-width **scheduler row** below the account bar. Controls periodic bonus runs, work/sleep, random stops, and (below) the daily schedule grid.
+
+**Periodic row** — same options as menu **(S)** / `config.json` → `schedule` and `resourceBonuses`:
 
 | Control | Config key | Meaning |
 |---------|------------|---------|
@@ -119,7 +123,34 @@ Second row in the **Scheduler** panel (same account bar):
 | **Work min–max** | `workMinutesMin` / `workMinutesMax` | Random active window length (minutes) |
 | **Sleep min–max** | `sleepMinutesMin` / `sleepMinutesMax` | Random pause length (minutes) |
 
-While **sleeping**, embedded **All bonuses** and **Farm list** timers wait (no automated sends/claims). Manual **Run now**, **Send all**, and individual bonus buttons still work. Phase state: `data/work-sleep-state.json`. Save: `PUT /api/config/work-sleep`.
+While **sleeping**, embedded **All bonuses** and **Farm list** timers wait (no automated sends/claims). The browser may close until the next work window. Manual **Run now**, **Send all**, and individual bonus buttons still work. Phase state: `data/work-sleep-state.json`. Save: `PUT /api/config/work-sleep`.
+
+### Random stops (micro-pause)
+
+Third row in the **Scheduler** panel:
+
+| Control | Config | Meaning |
+|---------|--------|---------|
+| **Random stops** | `microPause.enabled` | Brief strict pauses between automated runs |
+| **Stop min–max** | `pauseMinutesMin` / `pauseMinutesMax` | Random pause length (minutes) |
+| **Every min–max** | `intervalMinutesMin` / `intervalMinutesMax` | Random time between pauses |
+
+Pauses bonus and farm schedulers only — browser may stay logged in. Manual actions still work. Save: `PUT /api/config/micro-pause`.
+
+### Daily schedule
+
+Full-width panel below the scheduler row. **24-column grid** (local hours 00–23):
+
+| Control | Meaning |
+|---------|---------|
+| Master **ON** | Only run schedulers in enabled half-hour slots |
+| Per-hour **:00** / **:30** | Toggle active half-hours |
+| Per-hour **Off / P1 / P2** | Proxy for that hour when the slot is active (**Off** = direct, **P1/P2** = pool index) |
+| **Save** | `PUT /api/config/daily-schedule` |
+
+Outside enabled slots, schedulers wait and the GUI **closes the browser**. Proxy switches automatically when the hour or proxy choice changes. **Run now** does not bypass off-hours.
+
+Save: `PUT /api/config/daily-schedule`. Status shows active slot, next slot, and current proxy.
 
 ### Gather bonuses
 
@@ -213,6 +244,12 @@ All `POST` bonus routes clear the bonus poll cache and run under a mutex (queue 
 | `PUT` | `/api/config/proxy` | Save proxy to `config.json` and close session |
 | `GET` | `/api/config/schedule` | Scheduler settings + next-run status for the form |
 | `PUT` | `/api/config/schedule` | Save `schedule` / `resourceBonuses` to `config.json` |
+| `GET` | `/api/config/work-sleep` | Work/sleep settings + phase status |
+| `PUT` | `/api/config/work-sleep` | Save `workSleep` to `config.json` |
+| `GET` | `/api/config/micro-pause` | Micro-pause settings + next pause time |
+| `PUT` | `/api/config/micro-pause` | Save `microPause` to `config.json` |
+| `GET` | `/api/config/daily-schedule` | Daily schedule grid + proxy count |
+| `PUT` | `/api/config/daily-schedule` | Save `dailySchedule` to `config.json` |
 | `POST` | `/api/schedule/run-now` | Trigger the next full scheduled claim cycle immediately |
 | `POST` | `/api/proxy/test` | Re-test proxy through the browser; returns `{ ok, proxy }` |
 | `POST` | `/api/account/refresh` | Re-read player name and public IP |
