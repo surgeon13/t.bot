@@ -1,6 +1,6 @@
 # t.bot documentation
 
-**Version 0.9.6**
+**Version 0.9.7**
 
 This folder contains detailed guides. For a quick start, see the [main README](../README.md).
 
@@ -28,7 +28,7 @@ The GUI can send your hero to adventures and run farm lists on a timer. Schedule
 | Command | Script | Description |
 |---------|--------|-------------|
 | `npm start` | `menu.js` | Interactive terminal menu |
-| `npm run gui` | `gui.js` | Web control panel at http://127.0.0.1:3733 |
+| `npm run gui` | `gui.js` | Web control panel at http://127.0.0.1:3733 (runs `pregui` first to free the port) |
 | `npm run gui:dev` | `gui.js` + nodemon | GUI with server restart + browser hot reload for `public/` |
 | `npm run gui:stop` | `scripts/free-gui-port.js` | Free port 3733 (stale GUI process on Windows) |
 | `npm run bonuses` | `claim-all-bonuses.js` | One shot: login → hero bonuses → due resources → exit |

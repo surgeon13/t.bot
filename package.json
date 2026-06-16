@@ -1,6 +1,6 @@
 {
   "name": "t.bot",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "Travian helper: claim hero and resource video bonuses via Playwright.",
   "main": "menu.js",
   "scripts": {
@@ -9,12 +9,21 @@
     "bonuses": "node claim-all-bonuses.js",
     "resources": "node claim-resource-bonuses.js",
     "schedule": "node scheduler.js",
+    "pregui": "node scripts/free-gui-port.js",
     "gui": "node gui.js",
     "gui:stop": "node scripts/free-gui-port.js",
     "gui:dev": "nodemon gui.js",
     "pregui:dev": "node scripts/free-gui-port.js",
     "export": "node scripts/export-zip.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/surgeon13/t.bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/surgeon13/t.bot/issues"
+  },
+  "homepage": "https://github.com/surgeon13/t.bot#readme",
   "keywords": [
     "travian",
     "playwright",
@@ -27,12 +36,11 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "chromium": "^3.0.3",
     "express": "^4.22.2",
-    "playwright": "^1.59.1"
+    "playwright": "^1.61.0"
   },
   "devDependencies": {
     "archiver": "^7.0.1",
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.14"
   }
 }

@@ -6,6 +6,17 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 
 _(nothing yet)_
 
+## 0.9.7 — 2026-06-16
+
+### Changed
+
+- **npm dependencies** — Playwright `^1.61.0`, nodemon `^3.1.14`; lockfile refreshed.
+- **`pregui`** — frees port 3733 before `npm run gui` (same as `pregui:dev`).
+
+### Removed
+
+- Unused **`chromium`** npm package (browser uses Playwright’s Chromium/Chrome only; removes audit advisory).
+
 ## 0.9.6 — 2026-06-13
 
 ### Added

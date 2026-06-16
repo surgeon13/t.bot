@@ -1,6 +1,6 @@
 # t.bot
 
-**Version 0.9.6**
+**Version 0.9.7**
 
 Node.js + [Playwright](https://playwright.dev/) helper for **Travian Legends** video bonuses: hero adventure **time** and **danger** reductions, plus **+15%** Wood / Clay / Iron / Crop production from the shop **Advantages** tab.
 
@@ -92,7 +92,7 @@ Open **http://127.0.0.1:3733** (or the port you set). Use **Refresh all bonuses*
 | Command | Purpose |
 |---------|---------|
 | `npm start` | Interactive terminal menu (settings, adventures check, claim bonuses) |
-| `npm run gui` | Web control panel (see above) |
+| `npm run gui` | Web control panel (see above; frees port 3733 first) |
 | `npm run gui:dev` | Same GUI with hot reload for UI + server code ([details](docs/gui.md)) |
 | `npm run gui:stop` | Free port 3733 if a stale GUI process is blocking startup |
 | `npm run bonuses` | One shot: login → hero bonuses → resource bonuses **if enabled and due** → exit |
