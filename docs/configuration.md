@@ -2,7 +2,7 @@
 
 All runtime options live in **`config.json`** at the project root. Never commit the real file.
 
-**Version 0.9.5** — see [CHANGELOG.md](../CHANGELOG.md) for release history.
+**Version 0.9.6** — see [CHANGELOG.md](../CHANGELOG.md) for release history.
 
 ### First-time config
 
@@ -124,6 +124,10 @@ All browser traffic (GUI, menu, scheduler, `npm run bonuses` / `resources`) goes
 ```
 
 After changing proxy settings, restart long-running processes or use GUI **Re-login** so a new browser context is created.
+
+**Bulk paste** (`host:port:user:pass` per line): each proxy stores its own credentials in the pool entry. The shared **User** / **Password** fields apply only to plain `host:port` entries without embedded auth.
+
+**Login batches:** each Re-login or automatic connect tries up to **3** proxies from the pool (one proxy when daily schedule forces a slot). After a failed batch, automatic retries pause for ~45 seconds; the GUI shows a cooldown message. **Next proxies** (`POST /api/proxy/refresh`) or **Re-login** retry immediately. A background recovery timer retries every ~3 minutes during active automation windows.
 
 Legacy: you may set `"proxy": "http://host:8080"` as a string instead of an object; it is treated as enabled with that server.
 

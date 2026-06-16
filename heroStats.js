@@ -167,6 +167,26 @@ async function readHeroAttributesPage(page) {
   }, { LABEL_MAP, LABEL_ALIASES });
 }
 
+async function gotoHeroAttributes(page, url) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25_000 });
+      return;
+    } catch (err) {
+      const msg = String(err?.message || err);
+      const aborted = /ERR_ABORTED/i.test(msg);
+      const onPage = await page.evaluate(() => /\/hero\/attributes/i.test(location.pathname)).catch(() => false);
+      if (onPage) return;
+      if (aborted && attempt < 2) {
+        log.info(TAG, `Hero attributes navigation interrupted — retry ${attempt + 2}/3`);
+        await page.waitForTimeout(350 * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 async function readHeroStats(page, options = {}) {
   const deep = options.deep !== false;
   const result = {
@@ -180,7 +200,7 @@ async function readHeroStats(page, options = {}) {
     try {
       const cfg = loadConfig();
       const base = cfg.url.replace(/\/+$/, '');
-      await page.goto(`${base}/hero/attributes`, { waitUntil: 'domcontentloaded', timeout: 25_000 });
+      await gotoHeroAttributes(page, `${base}/hero/attributes`);
       await page.waitForFunction(() => {
         const root = document.querySelector('#heroV2');
         if (!root) return false;

@@ -28,6 +28,8 @@ const {
   parseProxyServerList,
   proxyServersFromConfig,
   readRotationIndex,
+  writeRotationIndex,
+  parseProxyServerAuth,
   clearSessionProxy,
 } = require('./browserLaunch');
 const { loadConfig, saveConfig, login, hasLoggedInShell, networkErrorHint } = require('./auth');
@@ -71,12 +73,14 @@ const {
   readFarmListEntriesOnPage,
   readFarmListsOnPage,
 } = require('./farmList');
+const { farmListTargetCount } = require('./farmListConfig');
 const {
   farmListGuiStatus,
   setEmbeddedFarmSchedulerActive,
   writeFarmListState,
   readFarmListState,
   randomNextRunAt,
+  postponeFarmListRun,
 } = require('./farmListState');
 const { runFarmListSchedulerLoop } = require('./farmListScheduler');
 const {
@@ -269,10 +273,25 @@ let embeddedFarmControl = null;
 /** @type {Promise<{ reason: string }>|null} */
 let embeddedFarmTask = null;
 let embeddedFarmGen = 0;
+let lastFarmNotLoggedInLogAt = 0;
+
+function logFarmNotLoggedInOnce() {
+  const now = Date.now();
+  if (now - lastFarmNotLoggedInLogAt < 60_000) return;
+  lastFarmNotLoggedInLogAt = now;
+  log.warn(TAG, 'Farm list send skipped: not logged in');
+}
 
 async function runFarmListSendViaGui(options = {}) {
   return lock.run('farmListRun', async () => {
     try {
+      const gate = automationWindowAllowed();
+      if (!gate.allowed && !options.bypassAutomationGate) {
+        const message = gate.reason === 'daily-schedule'
+          ? 'Daily schedule off-hours — send queued for next active slot'
+          : 'Automation paused (work/sleep)';
+        return { ok: false, status: 'skipped', message };
+      }
       if (!options.bypassSleep) {
         const wr = await waitForWorkPhase({});
         if (wr === 'stopped') {
@@ -281,11 +300,14 @@ async function runFarmListSendViaGui(options = {}) {
       }
       await ensureSession();
       if (!loggedIn || !page || page.isClosed()) {
-        log.warn(TAG, 'Farm list send skipped: not logged in');
+        postponeFarmListRun();
+        logFarmNotLoggedInOnce();
         return { ok: false, message: 'Not logged in' };
       }
       if (!(await ensureGameShell(page, { tag: TAG }))) {
         loggedIn = false;
+        postponeFarmListRun();
+        logFarmNotLoggedInOnce();
         return { ok: false, message: 'Game shell unreachable' };
       }
       return sendAllCheckedFarmLists(page);
@@ -431,10 +453,6 @@ function applyFarmListConfigFromBody(cfg, body = {}) {
   return cfg;
 }
 
-function farmListTargetCount(fl) {
-  return fl.sendAllMode ? fl.totalCount : fl.activeCount;
-}
-
 /* --------------------------------------------------------------------- */
 /* Browser session                                                        */
 /* --------------------------------------------------------------------- */
@@ -455,14 +473,188 @@ function dailyProxyPickKey(cfg = loadConfig()) {
   return 'global';
 }
 
+/** Max proxy login attempts per session (then give up until cooldown). */
+const LOGIN_PROXY_MAX_ATTEMPTS = 3;
+/** Wait before the next automatic proxy batch (recovery timer). */
+const PROXY_RECOVERY_INTERVAL_MS = 3 * 60 * 1000;
+const PROXY_RECOVERY_CHECK_MS = 60 * 1000;
+/** After this many failed recovery batches, stop auto-retry for a long pause. */
+const PROXY_RECOVERY_MAX_STREAK = 8;
+const PROXY_RECOVERY_STOP_MS = 30 * 60 * 1000;
+
+let loginCooldownUntil = 0;
+let loginCooldownLogged = false;
+let proxyRecoveryRunning = false;
+let proxyRecoveryFailStreak = 0;
+let proxyRecoveryStoppedUntil = 0;
+
+function setLoginCooldown(delayMs, reason) {
+  loginCooldownUntil = Date.now() + Math.max(5_000, delayMs);
+  loginCooldownLogged = false;
+  if (reason) log.info(TAG, reason);
+}
+
+function clearLoginCooldown() {
+  loginCooldownUntil = 0;
+  loginCooldownLogged = false;
+  proxyRecoveryFailStreak = 0;
+  proxyRecoveryStoppedUntil = 0;
+}
+
+function isLoginCooldownActive() {
+  if (proxyRecoveryStoppedUntil > Date.now()) return true;
+  return loginCooldownUntil > Date.now();
+}
+
+function loginCooldownMessage() {
+  if (proxyRecoveryStoppedUntil > Date.now()) {
+    const mins = Math.max(1, Math.ceil((proxyRecoveryStoppedUntil - Date.now()) / 60_000));
+    return `Proxy login paused ~${mins} min — fix credentials, try direct (proxy off), or Re-login`;
+  }
+  const secs = Math.max(5, Math.ceil((loginCooldownUntil - Date.now()) / 1000));
+  if (secs >= 60) {
+    const mins = Math.ceil(secs / 60);
+    return `Proxy login paused ~${mins} min — Re-login or Next proxies to try now`;
+  }
+  return `Proxy login paused ~${secs}s — Re-login or Next proxies to try now`;
+}
+
 function shouldTryNextProxy(cfg, proxyOpts, attempt) {
   if (proxyOpts.forcedIndex != null || proxyOpts.forceDirect) return false;
+  if (attempt + 1 >= LOGIN_PROXY_MAX_ATTEMPTS) return false;
   const raw = proxyRawBlock(cfg);
   if (!raw.enabled) return false;
   const servers = proxyServersFromConfig(cfg);
   if (servers.length <= 1) return false;
   const mode = String(raw.rotation || 'round-robin').toLowerCase();
   return mode === 'round-robin' && attempt + 1 < servers.length;
+}
+
+/** Pick proxy index for this login attempt; keeps round-robin base stable across retries. */
+function contextProxyOptions(cfg, proxyOpts, attempt, loginProxyBase) {
+  if (proxyOpts.forceDirect) return { opts: proxyOpts, base: loginProxyBase };
+  if (proxyOpts.forcedIndex != null) {
+    return {
+      opts: { ...proxyOpts, rotationOverride: 'daily-schedule' },
+      base: loginProxyBase,
+    };
+  }
+
+  const raw = proxyRawBlock(cfg);
+  const servers = proxyServersFromConfig(cfg);
+  if (!raw.enabled || servers.length <= 1) return { opts: proxyOpts, base: loginProxyBase };
+  const mode = String(raw.rotation || 'round-robin').toLowerCase();
+  if (mode !== 'round-robin') return { opts: proxyOpts, base: loginProxyBase };
+
+  const base = loginProxyBase != null ? loginProxyBase : (readRotationIndex() % servers.length);
+  const idx = (base + attempt) % servers.length;
+  return {
+    opts: {
+      ...proxyOpts,
+      forcedIndex: idx,
+      rotationOverride: attempt > 0 ? 'login-retry' : 'round-robin',
+    },
+    base,
+  };
+}
+
+function finalizeLoginProxyRotation(cfg, proxyOpts, base, attempt) {
+  if (proxyOpts.forceDirect) return;
+  if (proxyOpts.forcedIndex != null) return;
+  if (base == null) return;
+  const raw = proxyRawBlock(cfg);
+  const servers = proxyServersFromConfig(cfg);
+  if (!raw.enabled || !servers.length) return;
+  writeRotationIndex((base + attempt + 1) % servers.length);
+}
+
+function markProxyLoginBatchFailed(options = {}) {
+  const cfg = loadConfig();
+  const poolSize = proxyServersFromConfig(cfg).length;
+  proxyRecoveryFailStreak += 1;
+
+  if (proxyRecoveryFailStreak >= PROXY_RECOVERY_MAX_STREAK) {
+    proxyRecoveryStoppedUntil = Date.now() + PROXY_RECOVERY_STOP_MS;
+    proxyRecoveryFailStreak = 0;
+    setLoginCooldown(PROXY_RECOVERY_STOP_MS,
+      `Proxy auto-retry stopped after repeated failures — pausing ${PROXY_RECOVERY_STOP_MS / 60_000} min`);
+    return;
+  }
+
+  const delay = options.proxyRecovery ? PROXY_RECOVERY_INTERVAL_MS : 45_000;
+  setLoginCooldown(delay,
+    `Proxy batch failed — next auto-try in ~${Math.ceil(delay / 60_000) || 1} min (Re-login / Next proxies for immediate retry)`);
+}
+
+/** Keep bonus + farm timers alive after a failed login (they may have exited on stop). */
+function ensureEmbeddedSchedulersRunning() {
+  if (guiShuttingDown || process.env.GUI_NO_SCHEDULER === '1') return;
+  const cfg = loadConfig();
+  if (cfg.schedule?.enabled && !embeddedScheduleControl && !embeddedScheduleTask) {
+    log.info(TAG, 'Restarting embedded bonus scheduler');
+    syncEmbeddedScheduler();
+  }
+  const fl = farmListSettings(cfg);
+  if (fl.enabled && farmListTargetCount(fl) && !embeddedFarmControl && !embeddedFarmTask) {
+    log.info(TAG, 'Restarting farm list scheduler');
+    syncEmbeddedFarmScheduler();
+  }
+}
+
+/**
+ * Reload proxy pool from config.json, close session, try next proxy batch (up to 3).
+ * @param {{ reason?: string }} [options]
+ */
+async function runProxyRecovery(options = {}) {
+  if (guiShuttingDown || proxyRecoveryRunning) return { ok: false, skipped: true };
+  if (lock.busy) return { ok: false, skipped: true, reason: 'busy' };
+  if (loggedIn) return { ok: true, skipped: true, reason: 'logged-in' };
+
+  const cfg = loadConfig();
+  const raw = proxyRawBlock(cfg);
+  if (!raw.enabled) return { ok: false, skipped: true, reason: 'proxy-off' };
+  const servers = proxyServersFromConfig(cfg);
+  if (!servers.length) return { ok: false, skipped: true, reason: 'no-servers' };
+
+  const gate = automationWindowAllowed(cfg);
+  if (!gate.allowed) return { ok: false, skipped: true, reason: gate.reason };
+
+  if (!options.force && isLoginCooldownActive()) {
+    return { ok: false, skipped: true, reason: 'cooldown' };
+  }
+
+  return lock.run('proxyRecovery', async () => {
+    if (loggedIn) return { ok: true, skipped: true, reason: 'logged-in' };
+
+    proxyRecoveryRunning = true;
+    const startIdx = readRotationIndex() % servers.length;
+    const label = options.reason || 'scheduled';
+    const authHint = parseProxyServerAuth(servers[startIdx], cfg);
+    if (!authHint.username && !String(raw.username || '').trim()) {
+      log.warn(TAG, 'Proxy has no credentials — bulk paste host:port:user:pass per line, or set shared User/Pass, then Save');
+    }
+
+    log.info(TAG, `Proxy recovery (${label}) — pool ${startIdx + 1}/${servers.length}, up to ${LOGIN_PROXY_MAX_ATTEMPTS} tries`);
+
+    try {
+      await closeSession().catch(() => {});
+      clearLoginCooldown();
+      await ensureSession({ freshContext: true, proxyRecovery: true, bypassLoginCooldown: true });
+
+      if (loggedIn) {
+        log.info(TAG, 'Proxy recovery — login succeeded');
+        clearLoginCooldown();
+        await refreshProxyStatus(page).catch(() => {});
+        ensureEmbeddedSchedulersRunning();
+        return { ok: true, loggedIn: true };
+      }
+
+      ensureEmbeddedSchedulersRunning();
+      return { ok: false, loggedIn: false };
+    } finally {
+      proxyRecoveryRunning = false;
+    }
+  });
 }
 
 async function destroyContextOnly() {
@@ -735,7 +927,18 @@ async function sessionStillLoggedIn(targetPage = page) {
 }
 
 async function ensureSession(options = {}) {
+  if (!options.bypassLoginCooldown && isLoginCooldownActive()) {
+    if (!loginCooldownLogged) {
+      log.info(TAG, loginCooldownMessage());
+      loginCooldownLogged = true;
+    }
+    return;
+  }
+
   const cfg = loadConfig();
+  if (!options.bypassAutomationGate && !automationWindowAllowed(cfg).allowed) {
+    return;
+  }
   const proxyOpts = proxyPickForNow(cfg);
   const proxyKey = dailyProxyPickKey(cfg);
   const proxyAttempt = options.proxyAttempt || 0;
@@ -761,7 +964,9 @@ async function ensureSession(options = {}) {
 
   try {
     if (!context || !page || page.isClosed()) {
-      await openBrowserContext(cfg, proxyOpts);
+      const { opts: ctxProxyOpts, base } = contextProxyOptions(cfg, proxyOpts, proxyAttempt, options.loginProxyBase);
+      await openBrowserContext(cfg, ctxProxyOpts);
+      options.loginProxyBase = base;
     }
   } catch (err) {
     log.error(TAG, `Browser launch failed: ${networkErrorHint(err)}`);
@@ -782,21 +987,44 @@ async function ensureSession(options = {}) {
 
   if (!loggedIn && shouldTryNextProxy(cfg, proxyOpts, proxyAttempt)) {
     const total = proxyServersFromConfig(cfg).length;
-    log.warn(TAG, `Login failed — rotating to next proxy (${proxyAttempt + 2}/${total})`);
+    const nextIdx = ((options.loginProxyBase ?? readRotationIndex()) + proxyAttempt + 1) % total;
+    log.warn(TAG, `Login failed — trying proxy ${nextIdx + 1}/${total}`);
     await destroyContextOnly();
     return ensureSession({ ...options, proxyAttempt: proxyAttempt + 1 });
   }
 
   if (!loggedIn) {
-    log.warn(TAG, 'Login failed');
+    finalizeLoginProxyRotation(cfg, proxyOpts, options.loginProxyBase, proxyAttempt);
+    const tried = proxyAttempt + 1;
+    const poolSize = proxyServersFromConfig(cfg).length;
+    const dailyForced = proxyOpts.forcedIndex != null;
+    const batchDone = dailyForced
+      ? tried >= 1
+      : poolSize <= 1
+        ? tried >= 1
+        : tried >= LOGIN_PROXY_MAX_ATTEMPTS;
+    if (batchDone) {
+      log.warn(TAG, poolSize > 1
+        ? `Login failed after ${tried} proxy attempts — pausing retries`
+        : 'Login failed — pausing proxy retries');
+      await closeSession().catch(() => {});
+      markProxyLoginBatchFailed(options);
+      ensureEmbeddedSchedulersRunning();
+    } else {
+      log.warn(TAG, 'Login failed');
+      await destroyContextOnly();
+    }
     const cfgAfter = loadConfig();
     const info = getProxyInfo(cfgAfter);
     if (info.configured) {
+      const paused = batchDone && isLoginCooldownActive();
       proxyStatusCache = {
         ...info,
         state: 'fail',
         working: false,
-        message: login.lastError || 'Login failed — check proxy, credentials, and bot.log. Re-login tries the next proxy in round-robin.',
+        message: login.lastError || (paused
+          ? loginCooldownMessage()
+          : 'Login failed — check proxy, credentials, and bot.log'),
         latencyMs: null,
         checkedAt: new Date().toISOString(),
       };
@@ -804,6 +1032,8 @@ async function ensureSession(options = {}) {
       proxyStatusCache = proxyStatusWithoutSession(cfgAfter);
     }
   } else {
+    clearLoginCooldown();
+    finalizeLoginProxyRotation(cfg, proxyOpts, options.loginProxyBase, proxyAttempt);
     log.info(TAG, 'Logged in');
     await Promise.all([
       refreshProxyStatus(page).catch(err => log.warn(TAG, `Proxy check error: ${err.message}`)),
@@ -851,12 +1081,21 @@ async function syncBrowserSessionPolicy() {
 function browserSessionForApi(cfg = loadConfig()) {
   const gate = automationWindowAllowed(cfg);
   const pauseLine = browserPauseStatusLine(gate);
+  let statusLine;
+  if (!gate.allowed) {
+    statusLine = pauseLine;
+  } else if (loggedIn) {
+    statusLine = 'Connected';
+  } else if (isLoginCooldownActive()) {
+    statusLine = loginCooldownMessage();
+  } else {
+    statusLine = 'Not logged in';
+  }
   return {
     keepOpen: gate.allowed,
     pauseReason: gate.reason,
-    statusLine: gate.allowed
-      ? (loggedIn ? 'Connected' : 'Not logged in')
-      : pauseLine,
+    loginCooldown: isLoginCooldownActive(),
+    statusLine,
   };
 }
 
@@ -1660,9 +1899,14 @@ app.get('/api/debug/advantages', async (_req, res) => {
 
 app.post('/api/relogin', async (_req, res) => {
   try {
+    clearLoginCooldown();
     await lock.run('relogin', async () => {
       await closeSession();
-      await ensureSession({ freshContext: true });
+      await ensureSession({
+        freshContext: true,
+        bypassLoginCooldown: true,
+        bypassAutomationGate: true,
+      });
     });
     res.json({
       ok: loggedIn,
@@ -1719,6 +1963,25 @@ app.post('/api/proxy/test', async (_req, res) => {
   });
 
   res.json(result);
+});
+
+/** Close session, reload proxy pool from config.json, try next proxies immediately. */
+app.post('/api/proxy/refresh', async (_req, res) => {
+  try {
+    const result = await runProxyRecovery({ force: true, reason: 'manual refresh' });
+    res.json({
+      ok: !!result.loggedIn,
+      loggedIn: !!loggedIn,
+      proxy: proxyPayloadForApi(),
+      account: accountPayloadForApi(),
+      recovery: result,
+      message: loggedIn
+        ? 'Connected through proxy'
+        : (proxyStatusCache?.message || 'Proxy refresh failed — check pool credentials'),
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
 });
 
 /* --------------------------------------------------------------------- */
@@ -1785,7 +2048,7 @@ const server = app.listen(PORT, HOST, async () => {
   const startupGate = automationWindowAllowed(loadConfig());
   if (startupGate.allowed) {
     try {
-      await ensureSession();
+      await lock.run('startup', () => ensureSession());
     } catch (err) {
       log.error(TAG, `Startup login failed: ${err.message}`);
     }
@@ -1821,6 +2084,12 @@ setInterval(() => {
     if (loggedIn) loggedIn = false;
   });
 }, SESSION_RECHECK_MS);
+
+setInterval(() => {
+  runProxyRecovery().catch(err => {
+    log.warn(TAG, `Proxy recovery check: ${err.message}`);
+  });
+}, PROXY_RECOVERY_CHECK_MS);
 
 server.on('error', err => {
   if (err.code === 'EADDRINUSE') {

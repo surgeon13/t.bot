@@ -185,6 +185,8 @@ let workSleepFormDirty = false;
 let microPauseFormDirty = false;
 let dailyScheduleFormDirty = false;
 let dailyScheduleProxyCount = 0;
+let dailyScheduleStatusCache = null;
+let lastDailyNowScrollKey = '';
 let farmListFormDirty = false;
 let accountAutoRefreshTimer = null;
 let accountAutoRefreshAttempts = 0;
@@ -639,6 +641,8 @@ function renderDailyScheduleGrid(hours) {
     frag.append(cell);
   }
   grid.append(frag);
+  updateDailyScheduleProxyToggleLabel();
+  applyDailyScheduleNowHighlight();
 }
 
 function fillDailyScheduleForm(cfg) {
@@ -658,25 +662,264 @@ function collectDailySchedulePayload() {
   };
 }
 
+function localScheduleNow() {
+  const d = new Date();
+  return { hour: d.getHours(), half: d.getMinutes() < 30 ? 0 : 30 };
+}
+
+function applyDailyScheduleNowHighlight(st = dailyScheduleStatusCache) {
+  const { hour, half } = localScheduleNow();
+  const scheduleOn = !!st?.enabled;
+  const activeNow = scheduleOn && !!st?.activeNow;
+
+  $$('.daily-hour-cell').forEach(cell => {
+    cell.classList.remove('now', 'now-active-slot', 'now-idle-slot');
+    cell.querySelectorAll('.daily-hour-toggle').forEach(t => t.classList.remove('now-half'));
+  });
+
+  const cell = $(`.daily-hour-cell[data-hour="${hour}"]`);
+  if (!cell) return;
+
+  cell.classList.add('now');
+  if (scheduleOn) {
+    cell.classList.add(activeNow ? 'now-active-slot' : 'now-idle-slot');
+  }
+
+  const halfInput = cell.querySelector(half === 0 ? '.daily-half-0' : '.daily-half-30');
+  const halfToggle = halfInput?.closest('.daily-hour-toggle');
+  if (halfToggle) halfToggle.classList.add('now-half');
+
+  const scrollKey = `${hour}:${half}`;
+  if (scrollKey !== lastDailyNowScrollKey) {
+    lastDailyNowScrollKey = scrollKey;
+    cell.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }
+}
+
 function paintDailyScheduleStatus(st) {
+  dailyScheduleStatusCache = st || null;
   const dot = $('#daily-schedule-dot');
   const txt = $('#daily-schedule-status-text');
   if (!dot || !txt) return;
   if (!st?.enabled) {
     dot.className = 'daily-schedule-dot off';
     txt.textContent = st?.statusLine || 'Daily schedule OFF';
-    return;
-  }
-  if (st.activeNow) {
+  } else if (st.activeNow) {
     dot.className = 'daily-schedule-dot on';
+    txt.textContent = st.statusLine || '—';
   } else {
     dot.className = 'daily-schedule-dot warn';
+    txt.textContent = st.statusLine || '—';
   }
-  txt.textContent = st.statusLine || '—';
-  $$('.daily-hour-cell').forEach(cell => cell.classList.remove('now'));
-  if (st.enabled && st.currentHour != null) {
-    const cell = $(`.daily-hour-cell[data-hour="${st.currentHour}"]`);
-    if (cell) cell.classList.add('now');
+  applyDailyScheduleNowHighlight(st);
+}
+
+function randInt(min, max) {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+function randHours(min, max) {
+  const step = 0.25;
+  const n = randInt(Math.ceil(min / step), Math.floor(max / step));
+  return (n * step).toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+}
+
+function updateSchedulerProxyButtons() {
+  const on = !!$('#proxy-enabled')?.checked;
+  $$('.scheduler-proxy-btn').forEach(btn => {
+    btn.textContent = on ? 'Proxy on' : 'Proxy off';
+    btn.classList.toggle('on', on);
+    btn.title = on ? 'Turn global proxy off and save' : 'Turn global proxy on and save';
+  });
+  updateDailyScheduleProxyToggleLabel();
+}
+
+async function toggleGlobalProxy() {
+  const cb = $('#proxy-enabled');
+  if (!cb) return;
+  cb.checked = !cb.checked;
+  proxyFormDirty = true;
+  updateSchedulerProxyButtons();
+  await saveProxyForm({ preventDefault() {} });
+}
+
+function clearBonusSchedulerForm() {
+  const periodic = $('#schedule-enabled');
+  const resOn = $('#resource-sched-enabled');
+  const interval = $('#schedule-interval');
+  const resH = $('#resource-sched-interval');
+  if (periodic) periodic.checked = false;
+  if (resOn) resOn.checked = false;
+  if (interval) interval.value = '3';
+  if (resH) resH.value = '8';
+  scheduleFormDirty = true;
+  const hint = $('#schedule-save-hint');
+  if (hint) {
+    hint.className = 'schedule-hint muted';
+    hint.textContent = 'Cleared — click Save to apply';
+  }
+}
+
+function generateBonusSchedulerForm() {
+  const periodic = $('#schedule-enabled');
+  const resOn = $('#resource-sched-enabled');
+  const interval = $('#schedule-interval');
+  const resH = $('#resource-sched-interval');
+  if (periodic) periodic.checked = true;
+  if (resOn) resOn.checked = Math.random() < 0.75;
+  if (interval) interval.value = randHours(2, 6);
+  if (resH) resH.value = randHours(4, 12);
+  scheduleFormDirty = true;
+  const hint = $('#schedule-save-hint');
+  if (hint) {
+    hint.className = 'schedule-hint muted';
+    hint.textContent = 'New random intervals — click Save to apply';
+  }
+}
+
+function clearWorkSleepFormUi() {
+  const en = $('#work-sleep-enabled');
+  if (en) en.checked = false;
+  fillWorkSleepForm({
+    enabled: false,
+    workMinutesMin: 30,
+    workMinutesMax: 60,
+    sleepMinutesMin: 15,
+    sleepMinutesMax: 45,
+  });
+  workSleepFormDirty = true;
+  saveWorkSleepForm().catch(() => {});
+}
+
+async function generateWorkSleepForm() {
+  const workMin = randInt(15, 45);
+  const workMax = workMin + randInt(15, 45);
+  const sleepMin = randInt(10, 30);
+  const sleepMax = sleepMin + randInt(10, 40);
+  const en = $('#work-sleep-enabled');
+  if (en) en.checked = true;
+  $('#work-sleep-work-min').value = String(workMin);
+  $('#work-sleep-work-max').value = String(workMax);
+  $('#work-sleep-sleep-min').value = String(sleepMin);
+  $('#work-sleep-sleep-max').value = String(sleepMax);
+  workSleepFormDirty = true;
+  await saveWorkSleepForm();
+}
+
+function clearMicroPauseFormUi() {
+  const en = $('#micro-pause-enabled');
+  if (en) en.checked = false;
+  fillMicroPauseForm({
+    enabled: false,
+    pauseMinutesMin: 2,
+    pauseMinutesMax: 5,
+    intervalMinutesMin: 20,
+    intervalMinutesMax: 45,
+  });
+  microPauseFormDirty = true;
+  saveMicroPauseForm().catch(() => {});
+}
+
+async function generateMicroPauseForm() {
+  const pauseMin = randInt(1, 4);
+  const pauseMax = pauseMin + randInt(1, 6);
+  const intMin = randInt(15, 35);
+  const intMax = intMin + randInt(10, 40);
+  const en = $('#micro-pause-enabled');
+  if (en) en.checked = true;
+  $('#micro-pause-min').value = String(pauseMin);
+  $('#micro-pause-max').value = String(pauseMax);
+  $('#micro-pause-interval-min').value = String(intMin);
+  $('#micro-pause-interval-max').value = String(intMax);
+  microPauseFormDirty = true;
+  await saveMicroPauseForm();
+}
+
+function clearDailyScheduleGrid() {
+  renderDailyScheduleGrid(Array.from({ length: 24 }, (_, h) => ({
+    hour: h,
+    half0: false,
+    half30: false,
+    proxyIndex: null,
+  })));
+  dailyScheduleFormDirty = true;
+  const hint = $('#daily-schedule-save-hint');
+  if (hint) {
+    hint.className = 'daily-schedule-hint muted';
+    hint.textContent = 'All slots cleared — click Save to apply';
+  }
+  updateDailyScheduleProxyToggleLabel();
+}
+
+function generateDailyScheduleGrid() {
+  const proxyCount = dailyScheduleProxyCount || 0;
+  const hours = [];
+  for (let h = 0; h < 24; h++) {
+    const dayBias = h >= 7 && h <= 22 ? 0.72 : 0.2;
+    const half0 = Math.random() < dayBias;
+    const half30 = Math.random() < dayBias;
+    let proxyIndex = null;
+    if ((half0 || half30) && proxyCount > 0 && Math.random() < 0.55) {
+      proxyIndex = proxyCount > 1 ? h % proxyCount : 0;
+    }
+    hours.push({ hour: h, half0, half30, proxyIndex });
+  }
+  renderDailyScheduleGrid(hours);
+  dailyScheduleFormDirty = true;
+  const hint = $('#daily-schedule-save-hint');
+  if (hint) {
+    hint.className = 'daily-schedule-hint muted';
+    hint.textContent = 'New random schedule — click Save to apply';
+  }
+  updateDailyScheduleProxyToggleLabel();
+}
+
+function dailyScheduleProxyOn() {
+  return $$('.daily-hour-proxy').some(sel => sel.value !== '');
+}
+
+function updateDailyScheduleProxyToggleLabel() {
+  const btn = $('#daily-schedule-proxy-toggle');
+  if (!btn) return;
+  const proxyCount = dailyScheduleProxyCount || 0;
+  if (!proxyCount) {
+    btn.textContent = 'Proxy';
+    btn.title = 'Configure proxies in the Proxy panel first';
+    btn.disabled = true;
+    return;
+  }
+  btn.disabled = false;
+  const on = dailyScheduleProxyOn();
+  btn.textContent = on ? 'Proxy on' : 'Proxy off';
+  btn.classList.toggle('on', on);
+  btn.title = on
+    ? 'Set all hours to direct (Off)'
+    : 'Assign P1/P2 to active hours';
+}
+
+function toggleDailyScheduleProxy() {
+  const proxyCount = dailyScheduleProxyCount || 0;
+  if (!proxyCount) return;
+  const turnOn = !dailyScheduleProxyOn();
+  $$('.daily-hour-cell').forEach(cell => {
+    const sel = cell.querySelector('.daily-hour-proxy');
+    if (!sel) return;
+    const half0 = cell.querySelector('.daily-half-0')?.checked;
+    const half30 = cell.querySelector('.daily-half-30')?.checked;
+    if (!turnOn) {
+      sel.value = '';
+      return;
+    }
+    if (!half0 && !half30) return;
+    const h = Number(cell.dataset.hour) || 0;
+    sel.value = proxyCount > 1 ? String(h % proxyCount) : '0';
+  });
+  dailyScheduleFormDirty = true;
+  updateDailyScheduleProxyToggleLabel();
+  const hint = $('#daily-schedule-save-hint');
+  if (hint) {
+    hint.className = 'daily-schedule-hint muted';
+    hint.textContent = turnOn ? 'Proxy enabled on active hours — click Save' : 'Proxy off on all hours — click Save';
   }
 }
 
@@ -786,17 +1029,31 @@ function paintFarmListStatus(st) {
     }
   }
   if (nextApprox) {
-    const nextTs = st?.nextRunAt ? new Date(st.nextRunAt).getTime() : NaN;
-    if (!Number.isFinite(nextTs)) {
-      nextApprox.textContent = 'Next send approx: —';
-    } else {
-      const mins = Math.max(0, Math.round((nextTs - Date.now()) / 60000));
+    const resumeTs = st?.scheduleResumeAt ? new Date(st.scheduleResumeAt).getTime() : NaN;
+    if (st?.pauseReason === 'daily-schedule' && Number.isFinite(resumeTs)) {
+      const mins = Math.max(0, Math.round((resumeTs - Date.now()) / 60000));
       if (mins <= 0) {
-        nextApprox.textContent = 'Next send approx: now';
+        nextApprox.textContent = 'Next send approx: when schedule slot opens';
       } else if (mins === 1) {
-        nextApprox.textContent = 'Next send approx: ~1 min';
+        nextApprox.textContent = 'Next send approx: ~1 min (schedule slot)';
       } else {
-        nextApprox.textContent = `Next send approx: ~${mins} min`;
+        nextApprox.textContent = `Next send approx: ~${mins} min (schedule slot)`;
+      }
+    } else if (st?.pauseReason === 'work-sleep') {
+      nextApprox.textContent = 'Next send approx: after work/sleep resumes';
+    } else {
+      const nextTs = st?.nextRunAt ? new Date(st.nextRunAt).getTime() : NaN;
+      if (!Number.isFinite(nextTs)) {
+        nextApprox.textContent = 'Next send approx: —';
+      } else {
+        const mins = Math.max(0, Math.round((nextTs - Date.now()) / 60000));
+        if (mins <= 0) {
+          nextApprox.textContent = 'Next send approx: now';
+        } else if (mins === 1) {
+          nextApprox.textContent = 'Next send approx: ~1 min';
+        } else {
+          nextApprox.textContent = `Next send approx: ~${mins} min`;
+        }
       }
     }
   }
@@ -1165,6 +1422,20 @@ function proxyServersFromCfg(cfg) {
   return [];
 }
 
+function maskProxyDisplay(addr) {
+  const s = String(addr || '').trim();
+  if (!s) return '';
+  try {
+    const u = new URL(s.includes('://') ? s : `http://${s}`);
+    if (u.username || u.password) {
+      return `${u.protocol}//${decodeURIComponent(u.username || '')}:***@${u.host}`;
+    }
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return s.replace(/:([^:@/]+)@/, ':***@');
+  }
+}
+
 function collectProxyServersFromDom() {
   return $$('#proxy-list .proxy-item').map(li => li.dataset.address || '').filter(Boolean);
 }
@@ -1194,8 +1465,8 @@ function renderProxyList(servers, meta = {}) {
 
     const address = document.createElement('span');
     address.className = 'proxy-item-addr';
-    address.textContent = addr;
-    address.title = addr;
+    address.textContent = maskProxyDisplay(addr);
+    address.title = maskProxyDisplay(addr);
 
     const tag = document.createElement('span');
     tag.className = 'proxy-item-tag';
@@ -1283,6 +1554,18 @@ function normalizeProxyServerClient(server) {
   return `http://${s}`;
 }
 
+function proxyUrlWithAuthClient(host, port, username, password) {
+  const h = String(host || '').trim();
+  const p = String(port || '').trim();
+  if (!h || !p) return '';
+  const user = String(username || '');
+  const pass = password != null ? String(password) : '';
+  if (user || pass) {
+    return `http://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${h}:${p}`;
+  }
+  return `http://${h}:${p}`;
+}
+
 /** @returns {{ server: string, username?: string, password?: string }|null} */
 function parseOneProxyLine(line) {
   const s = String(line || '').trim();
@@ -1299,7 +1582,7 @@ function parseOneProxyLine(line) {
     const host = parts.join(':');
     if (!host || !port || !/^\d+$/.test(port)) return null;
     return {
-      server: normalizeProxyServerClient(`${host}:${port}`),
+      server: proxyUrlWithAuthClient(host, port, username, password),
       username: String(username || ''),
       password: String(password || ''),
     };
@@ -1372,6 +1655,11 @@ function addProxyFromInput() {
     const passEl = $('#proxy-password');
     if (userEl) userEl.value = username;
     if (passEl) passEl.value = password;
+  } else if (credsConflict) {
+    if (hint) {
+      hint.className = 'proxy-hint muted';
+      hint.textContent = `Added ${added || newServers.length} proxies — each line keeps its own user/pass (not shared fields)`;
+    }
   }
 
   inp.value = '';
@@ -1381,7 +1669,7 @@ function addProxyFromInput() {
     let msg = `Added ${added} proxy${added === 1 ? '' : 'ies'}`;
     const dupes = newServers.length - added;
     if (dupes > 0) msg += ` (${dupes} duplicate${dupes === 1 ? '' : 's'} skipped)`;
-    if (credsConflict) msg += ' — mixed credentials; set User/Pass manually';
+    if (credsConflict) msg += ' — each proxy keeps its own user/pass';
     else if (username != null) msg += ' · user/pass filled';
     msg += ' — click Save';
     hint.textContent = msg;
@@ -1502,6 +1790,7 @@ function fillProxyForm(cfg) {
   }
   updateProxyReloadButton(cfg);
   dailyScheduleProxyCount = cfg.serverCount ?? proxyServersFromCfg(cfg).length;
+  updateSchedulerProxyButtons();
 }
 
 async function loadProxyForm(options = {}) {
@@ -1689,6 +1978,37 @@ function paintProxy(p) {
   if (!proxyFormDirty) paintProxyListMarkers(cfg, p);
 }
 
+async function refreshProxyPool() {
+  const btn = $('#proxy-refresh');
+  const dot = $('#proxy-dot');
+  const txt = $('#proxy-status-text');
+  if (!btn || btn.disabled) return;
+
+  btn.disabled = true;
+  if (dot) dot.className = 'proxy-dot checking';
+  if (txt) {
+    txt.className = 'proxy-status-text';
+    txt.textContent = 'Trying next proxies…';
+  }
+
+  try {
+    const res = await fetch('/api/proxy/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (data.proxy) paintProxy(data.proxy);
+    if (data.account) paintAccount(data.account);
+    if (txt && data.message) txt.textContent = data.message;
+  } catch {
+    if (txt) {
+      txt.className = 'proxy-status-text fail';
+      txt.textContent = 'Network error';
+    }
+    if (dot) dot.className = 'proxy-dot fail';
+  } finally {
+    btn.disabled = false;
+    fetchStatus();
+  }
+}
+
 async function testProxy() {
   const btn = $('#test-proxy');
   const dot = $('#proxy-dot');
@@ -1720,6 +2040,14 @@ async function testProxy() {
 }
 
 async function refreshHero(deep = true) {
+  if (heroRefreshPromise) return heroRefreshPromise;
+  heroRefreshPromise = refreshHeroInner(deep).finally(() => {
+    heroRefreshPromise = null;
+  });
+  return heroRefreshPromise;
+}
+
+async function refreshHeroInner(deep = true) {
   setText('#hero-name', 'Loading…');
   setText('#hero-toggle-meta', deep ? 'Loading stats…' : 'HP — · Adv —');
   try {
@@ -2110,6 +2438,7 @@ function bonusKeysForScope(scope) {
 }
 let bonusesSynced = false;
 let refreshPromise = null;
+let heroRefreshPromise = null;
 let startupSyncStarted = false;
 let logRefreshTimer = null;
 
@@ -2460,6 +2789,7 @@ $('#adventures-list')?.addEventListener('click', ev => {
 $('#relogin').addEventListener('click', relogin);
 $('#quit-bot')?.addEventListener('click', quitBot);
 $('#test-proxy')?.addEventListener('click', testProxy);
+$('#proxy-refresh')?.addEventListener('click', refreshProxyPool);
 $('#proxy-reload')?.addEventListener('click', reloadProxyFromConfig);
 $('#refresh-account')?.addEventListener('click', refreshAccount);
 $('#proxy-form')?.addEventListener('submit', saveProxyForm);
@@ -2467,9 +2797,21 @@ $('#proxy-form')?.addEventListener('input', () => { proxyFormDirty = true; });
 $('#schedule-form')?.addEventListener('submit', saveScheduleForm);
 $('#schedule-form')?.addEventListener('input', () => { scheduleFormDirty = true; });
 $('#schedule-run-now')?.addEventListener('click', runSchedulerNow);
+$('#schedule-clear')?.addEventListener('click', clearBonusSchedulerForm);
+$('#schedule-generate')?.addEventListener('click', generateBonusSchedulerForm);
+$('#schedule-proxy-toggle')?.addEventListener('click', toggleGlobalProxy);
 $('#work-sleep-save')?.addEventListener('click', saveWorkSleepForm);
+$('#work-sleep-clear')?.addEventListener('click', clearWorkSleepFormUi);
+$('#work-sleep-generate')?.addEventListener('click', () => { generateWorkSleepForm().catch(() => {}); });
+$('#work-sleep-proxy-toggle')?.addEventListener('click', toggleGlobalProxy);
 $('#micro-pause-save')?.addEventListener('click', saveMicroPauseForm);
+$('#micro-pause-clear')?.addEventListener('click', clearMicroPauseFormUi);
+$('#micro-pause-generate')?.addEventListener('click', () => { generateMicroPauseForm().catch(() => {}); });
+$('#micro-pause-proxy-toggle')?.addEventListener('click', toggleGlobalProxy);
 $('#daily-schedule-save')?.addEventListener('click', saveDailyScheduleForm);
+$('#daily-schedule-clear')?.addEventListener('click', clearDailyScheduleGrid);
+$('#daily-schedule-generate')?.addEventListener('click', generateDailyScheduleGrid);
+$('#daily-schedule-proxy-toggle')?.addEventListener('click', toggleDailyScheduleProxy);
 $('#daily-schedule-enabled')?.addEventListener('change', () => { dailyScheduleFormDirty = true; });
 $('#work-sleep-enabled')?.addEventListener('change', () => { workSleepFormDirty = true; });
 $('#micro-pause-enabled')?.addEventListener('change', () => { microPauseFormDirty = true; });
@@ -2568,8 +2910,8 @@ setInterval(checkGuiServerCapabilities, 30000);
 
 setAllBonusStatusesPolling();
 fetchStatus();
-refreshHero(true);
 syncBonusesWhenReady();
 startLogStream();
 setInterval(fetchStatus, 5000);
+setInterval(applyDailyScheduleNowHighlight, 30_000);
 setInterval(tickBonusCountdowns, 1000);

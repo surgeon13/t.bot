@@ -67,5 +67,7 @@ The bot opens rally point **Farm List** (`build.php?gid=16&tt=99`, `#rallyPointF
 - Disabled when `GUI_NO_SCHEDULER=1` (same as the embedded bonus scheduler).
 - List names must match the Travian UI; use **Load from game** to populate the panel and refresh order after you rearrange lists in Travian.
 - Unchecked lists are skipped each cycle but remain in config for next time.
+- During **daily schedule off-hours**, the runner waits for the next active slot; the dashboard shows **Off-hours · next slot ~N min** (not “Due now”).
+- If login fails, the next run is postponed and “not logged in” is logged at most once per minute.
 - If one list fails to send, the bot continues with the rest and still schedules the next cycle.
 - Each successful **Start** increments `farmListSends` in `data/totals-state.json`, logs `[farmList]` and `[totals]`, and updates the dashboard (farm list panel + Lifetime totals).

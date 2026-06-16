@@ -1,6 +1,6 @@
 # t.bot
 
-**Version 0.9.5**
+**Version 0.9.6**
 
 Node.js + [Playwright](https://playwright.dev/) helper for **Travian Legends** video bonuses: hero adventure **time** and **danger** reductions, plus **+15%** Wood / Clay / Iron / Crop production from the shop **Advantages** tab.
 
@@ -8,15 +8,15 @@ The bot watches the required video ads and clicks through Travian’s dialogs. T
 
 > Use only in line with [Travian’s](https://www.travian.com/) terms of service and your local rules.
 
-## Features (0.9.5)
+## Features (0.9.6)
 
 - **Web GUI** — per-bonus buttons, hero stats, adventures list, **farm list** runner, live log, **Claim all available resources**, **Quit bot**
 - **Work/sleep rhythm** — random work and sleep windows; schedulers pause during sleep
-- **Daily schedule** — half-hour slots (local time); optional **Off / P1 / P2** proxy per hour
+- **Daily schedule** — half-hour slots (local time); optional **Off / P1 / P2** proxy per hour; current hour highlighted
 - **Random micro-pauses** — brief strict stops between automated runs
-- **Session gate** — browser closes during sleep/off-hours; reconnects when allowed
+- **Session gate** — browser closes during sleep/off-hours; reconnects when allowed; farm list shows next slot while waiting
+- **Proxy pool** — bulk `host:port:user:pass`, up to 3 tries per batch, cooldown + **Next proxies** recovery
 - **Embedded scheduler** — periodic runs inside the GUI process (or `npm run schedule` in a second terminal)
-- **Proxy pool** — multiple servers, bulk paste, rotation; daily schedule can override per hour
 - **GUI themes** — Dark, Light, Ocean, Peach, Auto
 - **Headless by default** — optional visible browser; prefers installed Chrome for video ads
 - **CLI menu**, **one-shot** scripts, and **scheduler** loop
@@ -94,6 +94,7 @@ Open **http://127.0.0.1:3733** (or the port you set). Use **Refresh all bonuses*
 | `npm start` | Interactive terminal menu (settings, adventures check, claim bonuses) |
 | `npm run gui` | Web control panel (see above) |
 | `npm run gui:dev` | Same GUI with hot reload for UI + server code ([details](docs/gui.md)) |
+| `npm run gui:stop` | Free port 3733 if a stale GUI process is blocking startup |
 | `npm run bonuses` | One shot: login → hero bonuses → resource bonuses **if enabled and due** → exit |
 | `npm run resources` | One shot: login → **force** all claimable resource videos → exit |
 | `npm run schedule` | **Scheduler loop** — repeat `bonuses` on a timer until stopped ([guide](docs/scheduler.md)) |

@@ -91,6 +91,9 @@
             </label>
             <button type="submit" class="proxy-save schedule-save proxy-btn-sm">Save</button>
             <button type="button" id="schedule-run-now" class="ghost proxy-btn-sm schedule-run-now" title="Start the next full bonus claim cycle now">Run now</button>
+            <button type="button" id="schedule-clear" class="ghost proxy-btn-sm scheduler-tool-btn" title="Turn off bonus timers and reset intervals">Clear</button>
+            <button type="button" id="schedule-generate" class="ghost proxy-btn-sm scheduler-tool-btn" title="Random bonus intervals (click Save to apply)">Generate</button>
+            <button type="button" id="schedule-proxy-toggle" class="ghost proxy-btn-sm scheduler-tool-btn scheduler-proxy-btn" title="Toggle global proxy on/off and save">Proxy</button>
           </div>
           <div class="schedule-fields-row schedule-fields-row--inline work-sleep-row">
             <label class="proxy-check" title="Alternate work and sleep windows; timers pause during sleep">
@@ -116,6 +119,9 @@
               <span>min</span>
             </label>
             <button type="button" id="work-sleep-save" class="proxy-save proxy-btn-sm">Save</button>
+            <button type="button" id="work-sleep-clear" class="ghost proxy-btn-sm scheduler-tool-btn" title="Disable work/sleep and reset defaults">Clear</button>
+            <button type="button" id="work-sleep-generate" class="ghost proxy-btn-sm scheduler-tool-btn" title="Random work/sleep windows and save">Generate</button>
+            <button type="button" id="work-sleep-proxy-toggle" class="ghost proxy-btn-sm scheduler-tool-btn scheduler-proxy-btn" title="Toggle global proxy on/off and save">Proxy</button>
           </div>
           <div class="schedule-fields-row schedule-fields-row--inline work-sleep-row micro-pause-row">
             <label class="proxy-check" title="Short random stops; farm list + schedulers pause strictly during each stop">
@@ -141,6 +147,9 @@
               <span>min</span>
             </label>
             <button type="button" id="micro-pause-save" class="proxy-save proxy-btn-sm">Save</button>
+            <button type="button" id="micro-pause-clear" class="ghost proxy-btn-sm scheduler-tool-btn" title="Disable random stops and reset defaults">Clear</button>
+            <button type="button" id="micro-pause-generate" class="ghost proxy-btn-sm scheduler-tool-btn" title="Random stop timing and save">Generate</button>
+            <button type="button" id="micro-pause-proxy-toggle" class="ghost proxy-btn-sm scheduler-tool-btn scheduler-proxy-btn" title="Toggle global proxy on/off and save">Proxy</button>
           </div>
         </form>
         <div class="schedule-status-footer">
@@ -164,6 +173,9 @@
             <input type="checkbox" id="daily-schedule-enabled" name="enabled" />
             <span>ON</span>
           </label>
+          <button type="button" id="daily-schedule-clear" class="ghost proxy-btn-sm scheduler-tool-btn" title="Clear all hour slots">Clear</button>
+          <button type="button" id="daily-schedule-generate" class="ghost proxy-btn-sm scheduler-tool-btn" title="Generate a new random daily pattern">Generate</button>
+          <button type="button" id="daily-schedule-proxy-toggle" class="ghost proxy-btn-sm scheduler-tool-btn" title="Toggle proxy on all hours (Off ↔ P1/P2)">Proxy</button>
           <button type="button" id="daily-schedule-save" class="proxy-save proxy-btn-sm">Save</button>
         </div>
         <p class="daily-schedule-hint muted">Local time · 00–23 · :00/:30 toggles · proxy Off=direct, P1/P2=that proxy for the hour</p>
@@ -182,6 +194,7 @@
               <span class="proxy-dot" id="proxy-dot" aria-hidden="true"></span>
               <span class="proxy-status-text" id="proxy-status-text">—</span>
               <button type="button" id="test-proxy" class="ghost proxy-btn-sm" title="Test active proxy">Test</button>
+              <button type="button" id="proxy-refresh" class="ghost proxy-btn-sm" title="Close session and try the next proxies in the pool">Next proxies</button>
               <button type="button" id="proxy-reload" class="ghost proxy-btn-sm" title="Reload proxy pool and settings from config.json">Load from config</button>
             </div>
             <div class="proxy-list-head">

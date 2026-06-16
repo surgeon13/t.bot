@@ -21,7 +21,7 @@ Uses [nodemon](https://nodemon.io/) plus a small live-reload hook:
 | `public/*.html`, `*.css`, `app.js` | Browser tab refreshes automatically (SSE) |
 | `gui.js`, `adventures.js`, other root `*.js` | Server restarts (~1 s delay); Playwright session re-logs in |
 
-`gui:dev` sets `OPEN_BROWSER=0` (open http://127.0.0.1:3733 yourself once). For a normal run without watchers, use `npm run gui`.
+`gui:dev` enables live reload for `public/` and restarts the server when you edit root `*.js` files. The dashboard opens in your browser automatically (same as `npm run gui`).
 
 The GUI process:
 
@@ -42,13 +42,13 @@ Automatic bonus runs are configured in the **Scheduler** panel (account bar). Wh
 
 - **Green** — logged in, idle.  
 - **Amber** — action in progress (only one browser task at a time), **or** browser closed during work/sleep sleep / daily-schedule off-hours.  
-- **Red** — login failed; use **↻ Re-login**.  
+- **Red** — login failed or proxy cooldown; use **↻ Re-login** or **Next proxies**.  
 
 Shows the configured username and the next scheduled resource bonus line when available. When paused, the strip explains why (e.g. “Work/sleep — sleeping” or “Daily schedule — outside slot”).
 
 | Button | Action |
 |--------|--------|
-| **↻ Re-login** | Close Playwright session and log in again (applies next proxy in round-robin). |
+| **↻ Re-login** | Close Playwright session and log in again (applies next proxy in round-robin). Bypasses login cooldown and off-hours gate. |
 | **Quit bot** | `POST /api/quit` — stops embedded scheduler, closes browser, exits GUI process. |
 
 After a single hero bonus click, only hero status is re-polled (Adventures page). After a resource click, only the shop is opened for that resource’s status — not both.
@@ -78,6 +78,8 @@ After a single hero bonus click, only hero status is re-polled (Adventures page)
 **Rotation** — `round-robin`, `random`, or `sticky` (always first). Shared username/password/bypass for every address in the pool.
 
 **Bulk paste** — textarea below the pool: one proxy per line as `host:port:user:pass` (Ctrl+Enter to add). **Load from config** reloads the saved pool from `config.json` without retyping.
+
+**Next proxies** — `POST /api/proxy/refresh`: close session and try the next proxy batch (up to 3 attempts). Use when login is stuck on a dead proxy.
 
 **Save** — writes `config.json` (`PUT /api/config/proxy`), closes the session; **Re-login** to apply the next proxy.
 
@@ -110,6 +112,8 @@ Full-width **scheduler row** below the account bar. Controls periodic bonus runs
 **Save** — `PUT /api/config/schedule` (does not close the browser session). Restarts the embedded scheduler when settings change.
 
 **Run now** — `POST /api/schedule/run-now` skips the wait and starts the next full claim cycle (same as `run` in the CLI scheduler terminal). Requires **All bonuses** ON.
+
+Each scheduler row (periodic, work/sleep, micro-pause, daily schedule) has small tool buttons: **Clear** (reset row), **Generate** (fill defaults), **Proxy** (apply proxy preset to daily grid).
 
 Status lines show the next full run (`schedule-state.json`) and next resource batch (`resource-bonus-state.json`) when timers exist.
 
@@ -148,7 +152,7 @@ Full-width panel below the scheduler row. **24-column grid** (local hours 00–2
 | Per-hour **Off / P1 / P2** | Proxy for that hour when the slot is active (**Off** = direct, **P1/P2** = pool index) |
 | **Save** | `PUT /api/config/daily-schedule` |
 
-Outside enabled slots, schedulers wait and the GUI **closes the browser**. Proxy switches automatically when the hour or proxy choice changes. **Run now** does not bypass off-hours.
+Outside enabled slots, schedulers wait and the GUI **closes the browser**. Proxy switches automatically when the hour or proxy choice changes. **Run now** does not bypass off-hours. The **current local hour** is highlighted in the grid (theme-aware colors).
 
 Save: `PUT /api/config/daily-schedule`. Status shows active slot, next slot, and current proxy.
 

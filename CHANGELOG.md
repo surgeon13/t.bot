@@ -6,6 +6,39 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 
 _(nothing yet)_
 
+## 0.9.6 — 2026-06-13
+
+### Added
+
+- **Proxy login cooldown** — after up to **3** failed proxy attempts per batch, automatic retries pause (~45 s manual / ~3 min recovery). **Re-login** or **Next proxies** retries immediately.
+- **Proxy recovery timer** — background retry every 60 s during active automation windows; stops after 8 failed streaks (~30 min pause).
+- **`POST /api/proxy/refresh`** and dashboard **Next proxies** — close session and try the next proxy batch.
+- **Per-proxy credentials in pool** — bulk paste `host:port:user:pass`; `parseProxyServerAuth()` in `browserLaunch.js`.
+- **Scheduler tool buttons** — **Clear** / **Generate** / **Proxy** on bonus, work/sleep, micro-pause, and daily schedule rows.
+- **Daily schedule current-hour highlight** — theme-aware `.now` / `.now-active-slot` / `.now-idle-slot` on the hour grid (30 s refresh).
+- **`scripts/free-gui-port.js`** — `pregui:dev` / `gui:stop` free port 3733 before dev start (avoids `EADDRINUSE` on Windows).
+
+### Changed
+
+- **Farm list off-hours status** — dashboard shows “Off-hours · next slot ~N min” instead of misleading “Due now” when daily schedule blocks sends.
+- **`ensureSession`** — skips browser launch during work/sleep sleep and daily-schedule off-hours (manual **Re-login** still works).
+- **Farm list scheduler** — respects daily schedule while waiting even when `nextRunAt` is overdue; logs once per minute while waiting.
+- **`gui:dev`** — opens the dashboard in the browser automatically (same as `npm run gui`).
+
+### Fixed
+
+- **Farm list log spam** — `postponeFarmListRun()` after login skip; rate-limited “not logged in” warning (once per minute).
+- **Farm list tight loop** — scheduler always advances `nextRunAt` after failed runs.
+- **Start-all mode** — scheduler uses `farmListTargetCount()` instead of checked-list length only.
+- **Duplicate proxy cooldown log** — recovery path no longer double-calls `markProxyLoginBatchFailed`.
+- **Embedded scheduler restart** — only restarts when the task actually exited (`!embeddedFarmTask`).
+- **Hero stats** — `gotoHeroAttributes()` retries on `ERR_ABORTED`; startup login under `lock.run('startup')`.
+- **Daily-schedule forced proxy** — login tries one proxy per slot (no endless rotation on dead proxy).
+
+### Docs
+
+- Updated [docs/configuration.md](docs/configuration.md), [docs/gui.md](docs/gui.md), [docs/farm-list.md](docs/farm-list.md), [README.md](README.md).
+
 ## 0.9.5 — 2026-06-05
 
 ### Added

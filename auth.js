@@ -185,7 +185,7 @@ async function describePage(page) {
 function networkErrorHint(err) {
   const msg = String(err?.message || err || 'Unknown error');
   if (/ERR_TUNNEL_CONNECTION_FAILED/i.test(msg)) {
-    return 'Proxy tunnel failed — check proxy host, port, and credentials, or try another proxy in the pool (Re-login rotates round-robin).';
+    return 'Proxy tunnel failed — wrong host/port/credentials, or proxy is dead. Use host:port:user:pass per line in the pool, Save, then Re-login. Try proxy Off to test direct login.';
   }
   if (/ERR_PROXY_CONNECTION_FAILED/i.test(msg)) {
     return 'Proxy connection failed — proxy unreachable or misconfigured.';

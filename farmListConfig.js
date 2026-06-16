@@ -137,8 +137,13 @@ function farmListSettings(cfg = loadConfig(), options = {}) {
   };
 }
 
+function farmListTargetCount(fl) {
+  return fl.sendAllMode ? fl.totalCount : fl.activeCount;
+}
+
 module.exports = {
   farmListSettings,
+  farmListTargetCount,
   normalizeFarmListEntry,
   normalizeFarmListsFromConfig,
   mergeFarmLists,

@@ -32,6 +32,50 @@ function normalizeProxyServer(server) {
 }
 
 /**
+ * Build a proxy URL, embedding user:pass when provided (stored per entry in the pool).
+ */
+function proxyUrlWithAuth(host, port, username, password) {
+  const h = String(host || '').trim();
+  const p = String(port || '').trim();
+  if (!h || !p) return '';
+  const user = String(username || '');
+  const pass = password != null ? String(password) : '';
+  if (user || pass) {
+    return `http://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${h}:${p}`;
+  }
+  return `http://${h}:${p}`;
+}
+
+/**
+ * Split embedded credentials out of a proxy URL for Playwright (server + username + password).
+ * Falls back to global config credentials when the URL has no userinfo.
+ */
+function parseProxyServerAuth(server, cfg = loadConfig()) {
+  const normalized = normalizeProxyServer(server);
+  if (!normalized) {
+    return { server: '', username: '', password: '' };
+  }
+  try {
+    const u = new URL(normalized);
+    if (u.username || u.password) {
+      return {
+        server: `${u.protocol}//${u.host}`,
+        username: decodeURIComponent(u.username || ''),
+        password: decodeURIComponent(u.password || ''),
+      };
+    }
+  } catch {
+    /* plain host:port */
+  }
+  const p = rawProxyBlock(cfg);
+  return {
+    server: normalized,
+    username: String(p.username || '').trim(),
+    password: p.password != null ? String(p.password) : '',
+  };
+}
+
+/**
  * Parse one or many proxy URLs from config fields.
  * @param {string} [server]
  * @param {string[]} [servers]
@@ -97,18 +141,20 @@ function selectProxyForSession(cfg = loadConfig(), options = {}) {
 
   const forced = options.forcedIndex;
   if (forced != null && forced >= 0 && forced < servers.length) {
+    const auth = parseProxyServerAuth(servers[forced], cfg);
+    const rotLabel = options.rotationOverride || 'forced';
     sessionProxyPick = {
       enabled: true,
-      server: servers[forced],
+      server: auth.server,
       servers,
       serverIndex: forced,
       serverCount: servers.length,
-      rotation: 'daily-schedule',
-      username: String(p.username || '').trim(),
-      password: p.password != null ? String(p.password) : '',
+      rotation: rotLabel,
+      username: auth.username,
+      password: auth.password,
       bypass: String(p.bypass || '').trim(),
     };
-    log.info('browser', `Daily schedule proxy ${forced + 1}/${servers.length}: ${sessionProxyPick.server}`);
+    log.info('browser', `Proxy ${forced + 1}/${servers.length}: ${auth.server}${auth.username ? ' (auth)' : ''} (${rotLabel})`);
     return sessionProxyPick;
   }
 
@@ -147,20 +193,26 @@ function selectProxyForSession(cfg = loadConfig(), options = {}) {
     // sticky / unknown → index 0
   }
 
+  const auth = parseProxyServerAuth(servers[idx], cfg);
   sessionProxyPick = {
     enabled: true,
-    server: servers[idx],
+    server: auth.server,
     servers,
     serverIndex: idx,
     serverCount: servers.length,
     rotation: mode,
-    username: String(p.username || '').trim(),
-    password: p.password != null ? String(p.password) : '',
+    username: auth.username,
+    password: auth.password,
     bypass: String(p.bypass || '').trim(),
   };
 
+  const authSrc = auth.username
+    ? (servers[idx].includes('@') ? 'embedded' : 'shared')
+    : 'none';
   if (servers.length > 1) {
-    log.info('browser', `Proxy ${idx + 1}/${servers.length}: ${sessionProxyPick.server} (${mode})`);
+    log.info('browser', `Proxy ${idx + 1}/${servers.length}: ${auth.server} (auth: ${authSrc}) (${mode})`);
+  } else if (authSrc === 'none') {
+    log.warn('browser', `Proxy ${auth.server} has no credentials — set User/Pass or use host:port:user:pass in pool`);
   }
   return sessionProxyPick;
 }
@@ -283,9 +335,12 @@ module.exports = {
   launchWithPage,
   headlessEnabled,
   normalizeProxyServer,
+  proxyUrlWithAuth,
+  parseProxyServerAuth,
   parseProxyServerList,
   proxyServersFromConfig,
   readRotationIndex,
+  writeRotationIndex,
   selectProxyForSession,
   clearSessionProxy,
   proxySettings,
