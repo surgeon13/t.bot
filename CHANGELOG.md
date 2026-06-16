@@ -6,6 +6,16 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 
 _(nothing yet)_
 
+## 0.9.8 — 2026-06-16
+
+### Added
+
+- **GitHub release workflow** — pushing a `v*` tag builds `t.bot-v<version>.zip` and attaches it to the GitHub Release.
+
+### Fixed
+
+- **Export zip** — excludes all `config*.json` except `config.example.json` (no credential copies in deployment zip).
+
 ## 0.9.7 — 2026-06-16
 
 ### Changed

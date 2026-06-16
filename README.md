@@ -1,6 +1,6 @@
 # t.bot
 
-**Version 0.9.7**
+**Version 0.9.8**
 
 Node.js + [Playwright](https://playwright.dev/) helper for **Travian Legends** video bonuses: hero adventure **time** and **danger** reductions, plus **+15%** Wood / Clay / Iron / Crop production from the shop **Advantages** tab.
 
@@ -181,7 +181,7 @@ From the project folder:
 npm run export
 ```
 
-Creates **`t.bot-v<version>.zip`** (unpacks to a **`t.bot/`** folder) without `node_modules`, secrets, or local state. Recipients run `npm install`, copy `config.example.json` → `config.json`, and configure credentials.
+Creates **`t.bot-v<version>.zip`** (unpacks to a **`t.bot/`** folder) without `node_modules`, secrets, or local state. Download the latest zip from [GitHub Releases](https://github.com/surgeon13/t.bot/releases). Recipients run `npm install`, copy `config.example.json` → `config.json`, and configure credentials.
 
 Do **not** ship `config.json`, `data/`, or `debug/`.
 

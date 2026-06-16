@@ -29,7 +29,6 @@ const EXCLUDE_DIRS = new Set([
 ]);
 
 const EXCLUDE_FILES = new Set([
-  'config.json',
   OUT_NAME,
 ]);
 
@@ -39,6 +38,7 @@ function shouldSkip(relPosix) {
   const base = parts[parts.length - 1];
   if (EXCLUDE_FILES.has(base)) return true;
   if (/^t\.bot-v[\d.]+\.zip$/i.test(base)) return true;
+  if (base.startsWith('config') && base.endsWith('.json') && base !== 'config.example.json') return true;
   if (base.startsWith('.') && base !== '.gitignore') return true;
   return false;
 }

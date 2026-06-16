@@ -1,6 +1,6 @@
 # t.bot documentation
 
-**Version 0.9.7**
+**Version 0.9.8**
 
 This folder contains detailed guides. For a quick start, see the [main README](../README.md).
 

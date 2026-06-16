@@ -1,6 +1,6 @@
 # Architecture
 
-High-level map of **t.bot v0.9.7** (Node.js, CommonJS, Playwright).
+High-level map of **t.bot v0.9.8** (Node.js, CommonJS, Playwright).
 
 ```mermaid
 flowchart LR
