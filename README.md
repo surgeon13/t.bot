@@ -1,6 +1,6 @@
 # t.bot
 
-**Version 0.9.8**
+**Version 0.9.9**
 
 Node.js + [Playwright](https://playwright.dev/) helper for **Travian Legends** video bonuses: hero adventure **time** and **danger** reductions, plus **+15%** Wood / Clay / Iron / Crop production from the shop **Advantages** tab.
 
@@ -27,6 +27,7 @@ The bot watches the required video ads and clicks through Travian’s dialogs. T
 
 | Topic | Guide |
 |-------|--------|
+| **Install (Pi / Linux / Windows / macOS)** | [docs/setup/README.md](docs/setup/README.md) |
 | `config.json` options | [docs/configuration.md](docs/configuration.md) |
 | Periodic scheduler | [docs/scheduler.md](docs/scheduler.md) |
 | Web GUI & API | [docs/gui.md](docs/gui.md) |
@@ -61,6 +62,12 @@ t.bot/
 ```
 
 ## Quick start
+
+**Windows:** `powershell -ExecutionPolicy Bypass -File scripts\install.ps1`  
+**Linux / macOS / Pi:** `bash scripts/install.sh`  
+**Any OS (with Node 18+ already):** `npm run setup` or `npm install`
+
+See **[docs/setup/](docs/setup/README.md)** for Raspberry Pi, SSH tunnel, and headless server tips.
 
 ```bash
 cd t.bot
@@ -98,6 +105,7 @@ Open **http://127.0.0.1:3733** (or the port you set). Use **Refresh all bonuses*
 | `npm run bonuses` | One shot: login → hero bonuses → resource bonuses **if enabled and due** → exit |
 | `npm run resources` | One shot: login → **force** all claimable resource videos → exit |
 | `npm run schedule` | **Scheduler loop** — repeat `bonuses` on a timer until stopped ([guide](docs/scheduler.md)) |
+| `npm run setup` | Run platform install script (deps + `npm install` + create `config.json`) |
 | `npm run export` | Create clean `t.bot-v<version>.zip` for another PC |
 
 ### Scheduler (`npm run schedule`)

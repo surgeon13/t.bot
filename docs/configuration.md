@@ -2,7 +2,7 @@
 
 All runtime options live in **`config.json`** at the project root. Never commit the real file.
 
-**Version 0.9.8** — see [CHANGELOG.md](../CHANGELOG.md) for release history.
+**Version 0.9.9** — see [CHANGELOG.md](../CHANGELOG.md) for release history.
 
 ### First-time config
 

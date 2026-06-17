@@ -16,7 +16,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
 const express = require('express');
 const log = require('./logger');
 const {
@@ -110,7 +110,7 @@ const {
 
 const TAG = 'gui';
 const PORT = Number(process.env.PORT) || 3733;
-const HOST = '127.0.0.1';
+const HOST = process.env.HOST || '127.0.0.1';
 const DEV_RELOAD = process.env.DEV_RELOAD === '1';
 const { ROOT, LOG_FILE, PACKAGE_FOLDER_NAME } = require('./paths');
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -2032,34 +2032,47 @@ app.use(express.static(PUBLIC_DIR, {
 /* --------------------------------------------------------------------- */
 
 function openInBrowser(url) {
-  const platform = process.platform;
-  const cmd = platform === 'win32' ? `start "" "${url}"`
-            : platform === 'darwin' ? `open "${url}"`
-            : `xdg-open "${url}"`;
-  exec(cmd, () => {});
+  if (process.env.OPEN_BROWSER === '0') return;
+  try {
+    if (process.platform === 'win32') {
+      spawn('cmd', ['/c', 'start', '', url], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      }).unref();
+    } else if (process.platform === 'darwin') {
+      spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
+    }
+    log.info(TAG, `Opening dashboard in browser: ${url}`);
+  } catch (err) {
+    log.warn(TAG, `Could not open browser — open ${url} manually (${err.message})`);
+  }
 }
 
 process.on('unhandledRejection', err => {
   log.error(TAG, `Unhandled error (GUI kept running): ${networkErrorHint(err)}`);
 });
 
-const server = app.listen(PORT, HOST, async () => {
+const server = app.listen(PORT, HOST, () => {
   log.info(TAG, `GUI listening on http://${HOST}:${PORT}`);
-  const startupGate = automationWindowAllowed(loadConfig());
-  if (startupGate.allowed) {
-    try {
-      await lock.run('startup', () => ensureSession());
-    } catch (err) {
-      log.error(TAG, `Startup login failed: ${err.message}`);
+  openInBrowser(`http://${HOST}:${PORT}`);
+
+  void (async () => {
+    const startupGate = automationWindowAllowed(loadConfig());
+    if (startupGate.allowed) {
+      try {
+        await lock.run('startup', () => ensureSession());
+      } catch (err) {
+        log.error(TAG, `Startup login failed: ${err.message}`);
+      }
+    } else {
+      log.info(TAG, browserPauseStatusLine(startupGate));
     }
-  } else {
-    log.info(TAG, browserPauseStatusLine(startupGate));
-  }
-  syncEmbeddedScheduler();
-  syncEmbeddedFarmScheduler();
-  if (process.env.OPEN_BROWSER !== '0') {
-    openInBrowser(`http://${HOST}:${PORT}`);
-  }
+    syncEmbeddedScheduler();
+    syncEmbeddedFarmScheduler();
+  })();
 });
 
 const SESSION_POLICY_MS = 30 * 1000;

@@ -1,11 +1,12 @@
 # t.bot documentation
 
-**Version 0.9.8**
+**Version 0.9.9**
 
 This folder contains detailed guides. For a quick start, see the [main README](../README.md).
 
 | Guide | Contents |
 |-------|----------|
+| **[Setup](setup/README.md)** | Install on Raspberry Pi, Linux, Windows, macOS |
 | [Configuration](configuration.md) | Every `config.json` option, state files, timers |
 | [Scheduler](scheduler.md) | `npm run schedule`, intervals, pause gates, terminal commands |
 | [Web GUI](gui.md) | `npm run gui`, panels, API, environment variables |
@@ -34,6 +35,7 @@ The GUI can send your hero to adventures and run farm lists on a timer. Schedule
 | `npm run bonuses` | `claim-all-bonuses.js` | One shot: login → hero bonuses → due resources → exit |
 | `npm run resources` | `claim-resource-bonuses.js` | One shot: login → force all claimable resource videos → exit |
 | `npm run schedule` | `scheduler.js` | **Loop:** repeat `bonuses` every `schedule.intervalHours` (requires `schedule.enabled`) |
+| `npm run setup` | `scripts/setup.js` | Platform install (see [setup/README.md](setup/README.md)) |
 | `npm run export` | `scripts/export-zip.js` | Create `t.bot-v<version>.zip` for deployment |
 
 ## Typical workflows

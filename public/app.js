@@ -156,6 +156,7 @@ function paintStatus(s) {
   if (s.workSleepConfig && !workSleepFormDirty) fillWorkSleepForm(s.workSleepConfig);
   if (s.microPauseStatus) paintMicroPauseStatus(s.microPauseStatus);
   if (s.microPauseConfig && !microPauseFormDirty) fillMicroPauseForm(s.microPauseConfig);
+  if (s.proxyConfig && !proxyFormDirty) fillProxyForm(s.proxyConfig);
   if (s.dailyScheduleStatus) paintDailyScheduleStatus(s.dailyScheduleStatus);
   if (s.dailyScheduleConfig && !dailyScheduleFormDirty) fillDailyScheduleForm(s.dailyScheduleConfig);
   if (s.farmListStatus) paintFarmListStatus(s.farmListStatus);
@@ -172,8 +173,7 @@ function paintStatus(s) {
   if (s.proxy) paintProxy(s.proxy);
   if (s.account) paintAccount(s.account);
   maybeRefreshAccountInfo(s);
-  if (s.proxyConfig && !proxyFormDirty) fillProxyForm(s.proxyConfig);
-  else if (s.proxyConfig) {
+  if (s.proxyConfig && proxyFormDirty) {
     paintProxyListMarkers(s.proxyConfig, s.proxy);
     updateProxyReloadButton(s.proxyConfig);
   } else if (s.proxy) paintProxyListMarkers(null, s.proxy);
@@ -185,6 +185,8 @@ let workSleepFormDirty = false;
 let microPauseFormDirty = false;
 let dailyScheduleFormDirty = false;
 let dailyScheduleProxyCount = 0;
+/** @type {string[]} */
+let dailyScheduleProxyServers = [];
 let dailyScheduleStatusCache = null;
 let lastDailyNowScrollKey = '';
 let farmListFormDirty = false;
@@ -559,6 +561,26 @@ function updateDailyHourCellVisual(hour) {
   cell.classList.toggle('active', !!(half0 || half30));
 }
 
+function proxyScheduleOptionLabel(i, addr) {
+  const masked = addr ? maskProxyDisplay(addr) : '';
+  if (!masked) return `P${i + 1}`;
+  const host = masked.replace(/^https?:\/\//i, '').split('@').pop() || masked;
+  const short = host.length > 24 ? `${host.slice(0, 22)}…` : host;
+  return `P${i + 1} · ${short}`;
+}
+
+/** Refresh daily schedule proxy dropdowns after the proxy pool changes. */
+function syncDailyScheduleProxyPool(servers) {
+  dailyScheduleProxyServers = Array.isArray(servers) ? servers.filter(Boolean) : collectProxyServersFromDom();
+  dailyScheduleProxyCount = dailyScheduleProxyServers.length;
+  updateDailyScheduleProxyToggleLabel();
+
+  const grid = $('#daily-schedule-grid');
+  if (!grid?.children.length) return;
+  const hours = Array.from({ length: 24 }, (_, h) => dailyHourFromDom(h));
+  renderDailyScheduleGrid(hours);
+}
+
 function renderDailyScheduleGrid(hours) {
   const grid = $('#daily-schedule-grid');
   if (!grid) return;
@@ -613,8 +635,8 @@ function renderDailyScheduleGrid(hours) {
     const proxySel = document.createElement('select');
     proxySel.className = 'daily-hour-proxy';
     proxySel.title = proxyCount > 0
-      ? 'Proxy for active slots in this hour (Off / P1 / P2)'
-      : 'No proxies configured in config.json';
+      ? 'Proxy for active slots in this hour (Off = direct)'
+      : 'Add proxies in the Proxy panel and Save';
     const offOpt = document.createElement('option');
     offOpt.value = '';
     offOpt.textContent = 'Off';
@@ -622,7 +644,9 @@ function renderDailyScheduleGrid(hours) {
     for (let i = 0; i < proxyCount; i++) {
       const opt = document.createElement('option');
       opt.value = String(i);
-      opt.textContent = `P${i + 1}`;
+      const addr = dailyScheduleProxyServers[i];
+      opt.textContent = proxyScheduleOptionLabel(i, addr);
+      if (addr) opt.title = maskProxyDisplay(addr);
       proxySel.append(opt);
     }
     let pi = row.proxyIndex;
@@ -647,10 +671,18 @@ function renderDailyScheduleGrid(hours) {
 
 function fillDailyScheduleForm(cfg) {
   if (!cfg) return;
-  if (cfg.proxyCount != null) dailyScheduleProxyCount = Number(cfg.proxyCount) || 0;
+  if (Array.isArray(cfg.proxyServers) && cfg.proxyServers.length) {
+    dailyScheduleProxyServers = cfg.proxyServers.slice();
+    dailyScheduleProxyCount = cfg.proxyServers.length;
+  } else {
+    if (cfg.proxyCount != null) dailyScheduleProxyCount = Number(cfg.proxyCount) || 0;
+    const domServers = collectProxyServersFromDom();
+    if (domServers.length) dailyScheduleProxyServers = domServers;
+  }
   const en = $('#daily-schedule-enabled');
   if (en) en.checked = !!cfg.enabled;
   renderDailyScheduleGrid(cfg.hours || []);
+  updateDailyScheduleProxyToggleLabel();
 }
 
 function collectDailySchedulePayload() {
@@ -894,7 +926,7 @@ function updateDailyScheduleProxyToggleLabel() {
   btn.classList.toggle('on', on);
   btn.title = on
     ? 'Set all hours to direct (Off)'
-    : 'Assign P1/P2 to active hours';
+    : `Assign P1–P${proxyCount} to active hours`;
 }
 
 function toggleDailyScheduleProxy() {
@@ -1507,11 +1539,13 @@ function updateProxyPoolMeta() {
   const metaEl = $('#proxy-pool-meta');
   const rot = $('#proxy-rotation');
   if (!metaEl) return;
-  const n = collectProxyServersFromDom().length;
+  const servers = collectProxyServersFromDom();
+  const n = servers.length;
   const rotation = rot?.value || 'round-robin';
   metaEl.textContent = n
     ? `${n} proxy${n === 1 ? '' : 'ies'} · ${rotation}`
     : 'None — add below';
+  syncDailyScheduleProxyPool(servers);
 }
 
 function paintProxyListMarkers(cfg, status) {
@@ -1789,7 +1823,7 @@ function fillProxyForm(cfg) {
     }
   }
   updateProxyReloadButton(cfg);
-  dailyScheduleProxyCount = cfg.serverCount ?? proxyServersFromCfg(cfg).length;
+  syncDailyScheduleProxyPool(proxyServersFromCfg(cfg));
   updateSchedulerProxyButtons();
 }
 
@@ -1894,6 +1928,16 @@ async function saveProxyForm(ev) {
     const data = await res.json();
     if (data.proxy) fillProxyForm(data.proxy);
     if (data.proxyStatus) paintProxy(data.proxyStatus);
+    if (data.ok) {
+      syncDailyScheduleProxyPool(data.proxy?.servers || []);
+      if (!dailyScheduleFormDirty) {
+        try {
+          const ds = await fetch('/api/config/daily-schedule');
+          const dsData = await parseApiJson(ds);
+          if (dsData.dailySchedule) fillDailyScheduleForm(dsData.dailySchedule);
+        } catch { /* optional refresh */ }
+      }
+    }
     if (hint) {
       hint.className = data.ok ? 'proxy-hint ok' : 'proxy-hint fail';
       hint.textContent = data.message || (data.ok ? 'Saved' : 'Failed');

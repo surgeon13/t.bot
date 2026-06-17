@@ -6,6 +6,18 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 
 _(nothing yet)_
 
+## 0.9.9 — 2026-06-16
+
+### Added
+
+- **Platform setup guides** — [docs/setup/](docs/setup/README.md) for Raspberry Pi, Linux, Windows, and macOS.
+- **Install scripts** — `npm run setup` (or `bash scripts/install.sh` / `scripts/install.ps1`); helpers for apt deps, Node 20 on Linux, Pi swap.
+- **`HOST` env var** — GUI bind address (default `127.0.0.1`; use `0.0.0.0` on Pi for LAN access).
+
+### Fixed
+
+- Daily schedule proxy dropdowns refresh when the proxy pool is updated; options show `P1 · host:port`.
+
 ## 0.9.8 — 2026-06-16
 
 ### Added

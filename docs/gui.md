@@ -223,7 +223,7 @@ Placeholder section for future features (build queue, marketplace, etc.).
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `PORT` | `3733` | HTTP listen port |
-| `HOST` | `127.0.0.1` | Bind address |
+| `HOST` | `127.0.0.1` | Bind address (`0.0.0.0` on a Pi for LAN access — trusted networks only) |
 | `OPEN_BROWSER` | open | Set to `0` to skip launching the OS browser tab |
 | `GUI_NO_SCHEDULER` | off | Set to `1` to disable the in-process scheduler (use `npm run schedule` separately) |
 | `DEV_RELOAD` | off | Set to `1` by `npm run gui:dev` — SSE reload when `public/` changes |

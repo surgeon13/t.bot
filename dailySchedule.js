@@ -169,10 +169,12 @@ function formatSlotLabel(hour, half) {
 
 function dailyScheduleConfigForApi(cfg = loadConfig()) {
   const s = normalizeDailySchedule(cfg);
+  const servers = proxyServersFromConfig(cfg);
   return {
     enabled: s.enabled,
     hours: s.hours,
-    proxyCount: proxyServersFromConfig(cfg).length,
+    proxyCount: servers.length,
+    proxyServers: servers,
   };
 }
 

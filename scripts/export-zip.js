@@ -25,7 +25,6 @@ const EXCLUDE_DIRS = new Set([
   'data',
   'agent-transcripts',
   '.cursor',
-  'scripts',
 ]);
 
 const EXCLUDE_FILES = new Set([
@@ -39,6 +38,7 @@ function shouldSkip(relPosix) {
   if (EXCLUDE_FILES.has(base)) return true;
   if (/^t\.bot-v[\d.]+\.zip$/i.test(base)) return true;
   if (base.startsWith('config') && base.endsWith('.json') && base !== 'config.example.json') return true;
+  if (relPosix.startsWith('scripts/') && !/^scripts\/(install.*\.(sh|ps1)|setup.*\.(sh|js)|export-zip\.js|free-gui-port\.js)$/.test(relPosix)) return true;
   if (base.startsWith('.') && base !== '.gitignore') return true;
   return false;
 }
