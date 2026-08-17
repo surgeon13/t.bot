@@ -295,7 +295,18 @@ async function launchBrowser(options = {}) {
       /* bundled Chromium */
     }
   }
-  return chromium.launch(launchOpts);
+  try {
+    return await chromium.launch(launchOpts);
+  } catch (err) {
+    // Fallback for environments where Playwright's bundled Chromium download
+    // is unavailable (e.g. sandboxed/offline setups) but a compatible Chromium
+    // binary is already present on disk.
+    const fallbackPath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+    if (fallbackPath && /Executable doesn't exist/.test(err.message)) {
+      return chromium.launch({ ...launchOpts, executablePath: fallbackPath });
+    }
+    throw err;
+  }
 }
 
 async function newGameContext(browser, cfg = loadConfig(), proxyOptions = {}) {
