@@ -8,7 +8,16 @@ cd t.bot
 bash scripts/install.sh
 ```
 
-`install.sh` installs Playwright system libraries (via `apt` on Debian/Ubuntu) and runs `npm install`.
+`install.sh` installs Playwright system libraries (via `apt` on Debian/Ubuntu and
+derivatives such as Mint, Pop!_OS and Kali) and runs `npm install`.
+
+Package names are resolved per release, so Ubuntu **24.04+** and Debian **13+**
+— where several libs were renamed with a `t64` suffix — are handled
+automatically. If a library is unavailable, the script says so and the install
+continues; a missing lib shows up later as a browser launch error.
+
+Running non-interactively (CI, `npm run setup` from a script) answers the apt
+and Node prompts with their defaults instead of hanging.
 
 ### Node.js 18+ not installed?
 

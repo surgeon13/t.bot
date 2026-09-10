@@ -19,7 +19,15 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Test-NodeOk)
 
 Write-Host "==> Node $(node -v) npm $(npm -v)"
 Write-Host "==> npm install (includes Playwright Chromium)..."
+
+# $ErrorActionPreference does not catch native exit codes — check explicitly so a
+# failed install does not print "Done".
 npm install
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "npm install failed (exit $LASTEXITCODE). See docs/setup/windows.md"
+    exit $LASTEXITCODE
+}
 
 $cfg = Join-Path $Root "config.json"
 $example = Join-Path $Root "config.example.json"
@@ -27,6 +35,8 @@ if (-not (Test-Path $cfg)) {
     if (Test-Path $example) {
         Copy-Item $example $cfg
         Write-Host "==> Created config.json from config.example.json — edit url, username, password."
+    } else {
+        Write-Host "==> config.json will be created on first run."
     }
 } else {
     Write-Host "==> config.json already exists — kept as-is."
