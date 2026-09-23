@@ -161,6 +161,8 @@ function paintStatus(s) {
   if (s.dailyScheduleConfig && !dailyScheduleFormDirty) fillDailyScheduleForm(s.dailyScheduleConfig);
   if (s.farmListStatus) paintFarmListStatus(s.farmListStatus);
   if (s.farmListConfig && !farmListFormDirty) fillFarmListForm(s.farmListConfig);
+  if (s.marketplaceStatus) paintMarketplaceStatus(s.marketplaceStatus);
+  if (s.marketplaceConfig && !marketplaceFormDirty) fillMarketplaceForm(s.marketplaceConfig);
 
   if (s.totals) paintLifetimeTotals(s.totals);
 
@@ -190,6 +192,7 @@ let dailyScheduleProxyServers = [];
 let dailyScheduleStatusCache = null;
 let lastDailyNowScrollKey = '';
 let farmListFormDirty = false;
+let marketplaceFormDirty = false;
 let accountAutoRefreshTimer = null;
 let accountAutoRefreshAttempts = 0;
 
@@ -1010,6 +1013,8 @@ function paintLifetimeTotals(totals) {
   setText('#t-Crop', totals.cropBonuses);
   setText('#t-farm-list', totals.farmListSends ?? 0);
   paintFarmListSendTotal(totals.farmListSends ?? 0);
+  setText('#t-marketplace', totals.marketplaceAccepts ?? 0);
+  paintMarketplaceAcceptTotal(totals.marketplaceAccepts ?? 0);
 }
 
 function paintFarmListSendTotal(count) {
@@ -2863,6 +2868,280 @@ $$('#work-sleep-work-min, #work-sleep-work-max, #work-sleep-sleep-min, #work-sle
   .forEach(el => el.addEventListener('input', () => { workSleepFormDirty = true; }));
 $$('#micro-pause-min, #micro-pause-max, #micro-pause-interval-min, #micro-pause-interval-max')
   .forEach(el => el.addEventListener('input', () => { microPauseFormDirty = true; }));
+
+/* ----- Marketplace offers ----- */
+
+function paintMarketplaceAcceptTotal(count) {
+  const el = $('#marketplace-accept-total');
+  if (!el) return;
+  const n = Number(count) || 0;
+  el.textContent = `${n} accepted`;
+}
+
+function describeMarketplaceOffer(o) {
+  const get = o.offerAmount != null
+    ? `${o.offerAmount} ${o.offerResource || '?'}`
+    : (o.offerResource || '?');
+  const give = o.wantAmount != null
+    ? `${o.wantAmount} ${o.wantResource || '?'}`
+    : (o.wantResource || '?');
+  return `${get} for ${give}`;
+}
+
+function renderMarketplaceOffers(offers) {
+  const container = $('#marketplace-offers');
+  const empty = $('#marketplace-offers-empty');
+  if (!container) return;
+  container.textContent = '';
+
+  const list = Array.isArray(offers) ? offers : [];
+  if (!list.length) {
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  for (const offer of list) {
+    const row = document.createElement('div');
+    row.className = 'marketplace-offer';
+    row.setAttribute('role', 'listitem');
+
+    const ratio = document.createElement('span');
+    ratio.className = 'marketplace-offer-ratio';
+    ratio.textContent = Number.isFinite(offer.ratio) ? `×${offer.ratio}` : '×?';
+    row.appendChild(ratio);
+
+    const trade = document.createElement('span');
+    trade.className = 'marketplace-offer-trade';
+    trade.textContent = describeMarketplaceOffer(offer);
+    row.appendChild(trade);
+
+    // A computed ratio that disagrees with the column means the parser read the
+    // wrong cells — surface it rather than silently trusting the number.
+    if (Number.isFinite(offer.computedRatio)
+      && Number.isFinite(offer.ratio)
+      && Math.abs(offer.computedRatio - offer.ratio) > 0.05) {
+      const warn = document.createElement('span');
+      warn.className = 'marketplace-offer-warn';
+      warn.textContent = `amounts give ×${offer.computedRatio.toFixed(2)}`;
+      warn.title = 'The ratio column and the offered/requested amounts disagree — check the column before turning dry run off.';
+      row.appendChild(warn);
+    }
+
+    if (offer.player) {
+      const who = document.createElement('span');
+      who.className = 'marketplace-offer-player muted';
+      who.textContent = offer.player;
+      row.appendChild(who);
+    }
+
+    container.appendChild(row);
+  }
+}
+
+function paintMarketplaceStatus(st) {
+  const dot = $('#marketplace-dot');
+  const txt = $('#marketplace-status-text');
+  const line = $('#marketplace-next-line');
+  const nextApprox = $('#marketplace-next-approx');
+  if (!dot || !txt) return;
+
+  if (st.marketplaceAccepts != null) paintMarketplaceAcceptTotal(st.marketplaceAccepts);
+
+  if (st.enabled && st.schedulerRunning) {
+    dot.className = st.dryRun ? 'marketplace-dot warn' : 'marketplace-dot on';
+    txt.textContent = st.dryRun
+      ? `Runner ON · DRY RUN · ratio ≥ ${st.minRatio}`
+      : `Runner ON · ratio ≥ ${st.minRatio} · up to ${st.maxAcceptsPerRun}/run`;
+  } else if (st.enabled) {
+    dot.className = 'marketplace-dot warn';
+    txt.textContent = 'Runner ON — timer not running';
+  } else {
+    dot.className = 'marketplace-dot off';
+    txt.textContent = 'Runner OFF';
+  }
+
+  if (line) line.textContent = st.lastMessage || st.statusLine || '—';
+
+  if (nextApprox) {
+    const resumeTs = st?.scheduleResumeAt ? new Date(st.scheduleResumeAt).getTime() : NaN;
+    if (st?.pauseReason === 'daily-schedule' && Number.isFinite(resumeTs)) {
+      const mins = Math.max(0, Math.round((resumeTs - Date.now()) / 60000));
+      nextApprox.textContent = mins <= 0
+        ? 'Next scan approx: when schedule slot opens'
+        : `Next scan approx: ~${mins} min (schedule slot)`;
+    } else if (st?.pauseReason === 'work-sleep') {
+      nextApprox.textContent = 'Next scan approx: after work/sleep resumes';
+    } else {
+      const nextTs = st?.nextRunAt ? new Date(st.nextRunAt).getTime() : NaN;
+      if (!Number.isFinite(nextTs)) {
+        nextApprox.textContent = 'Next scan approx: —';
+      } else {
+        const mins = Math.max(0, Math.round((nextTs - Date.now()) / 60000));
+        nextApprox.textContent = mins <= 0
+          ? 'Next scan approx: now'
+          : `Next scan approx: ~${mins} min`;
+      }
+    }
+  }
+
+  updateMarketplaceRunNowButton(st);
+}
+
+function updateMarketplaceRunNowButton(st) {
+  const btn = $('#marketplace-run-now');
+  if (!btn) return;
+  const enabled = st ? !!st.enabled : !!$('#marketplace-enabled')?.checked;
+  btn.disabled = !enabled;
+  btn.title = enabled
+    ? 'Queue the next cycle on the runner'
+    : 'Turn the Marketplace runner ON and Save first';
+}
+
+function updateMarketplaceRunNowButtonFromForm() {
+  updateMarketplaceRunNowButton(null);
+}
+
+function fillMarketplaceForm(cfg) {
+  if (!cfg) return;
+  const en = $('#marketplace-enabled');
+  const dry = $('#marketplace-dry-run');
+  const ratio = $('#marketplace-min-ratio');
+  const maxAccepts = $('#marketplace-max-accepts');
+  const min = $('#marketplace-min');
+  const max = $('#marketplace-max');
+  if (en) en.checked = !!cfg.enabled;
+  if (dry) dry.checked = cfg.dryRun !== false;
+  if (ratio) ratio.value = String(cfg.minRatio ?? 1.5);
+  if (maxAccepts) maxAccepts.value = String(cfg.maxAcceptsPerRun ?? 3);
+  if (min) min.value = String(cfg.intervalMinutesMin ?? 20);
+  if (max) max.value = String(cfg.intervalMinutesMax ?? 45);
+
+  const give = Array.isArray(cfg.giveResources) ? cfg.giveResources : [];
+  $$('.marketplace-give-cb').forEach(cb => { cb.checked = give.includes(cb.value); });
+  updateMarketplaceRunNowButtonFromForm();
+}
+
+function collectMarketplaceForm() {
+  return {
+    enabled: !!$('#marketplace-enabled')?.checked,
+    dryRun: !!$('#marketplace-dry-run')?.checked,
+    minRatio: Number($('#marketplace-min-ratio')?.value) || 1.5,
+    maxAcceptsPerRun: Number($('#marketplace-max-accepts')?.value) || 3,
+    giveResources: $$('.marketplace-give-cb').filter(cb => cb.checked).map(cb => cb.value),
+    intervalMinutesMin: Number($('#marketplace-min')?.value) || 20,
+    intervalMinutesMax: Number($('#marketplace-max')?.value) || 45,
+  };
+}
+
+function setMarketplaceHint(kind, text) {
+  const hint = $('#marketplace-save-hint');
+  if (!hint) return;
+  hint.className = `marketplace-hint ${kind}`;
+  hint.textContent = text;
+}
+
+async function saveMarketplaceForm(ev) {
+  ev?.preventDefault();
+  const btn = $('#marketplace-save');
+  if (btn) btn.disabled = true;
+  setMarketplaceHint('muted', 'Saving…');
+
+  try {
+    const res = await fetch('/api/config/marketplace', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify(collectMarketplaceForm()),
+    });
+    const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Save failed (${res.status})`);
+
+    marketplaceFormDirty = false;
+    if (data.marketplace) fillMarketplaceForm(data.marketplace);
+    if (data.marketplaceStatus) paintMarketplaceStatus(data.marketplaceStatus);
+    setMarketplaceHint('ok', data.message || 'Marketplace settings saved');
+    fetchStatus();
+  } catch (err) {
+    setMarketplaceHint('fail', err.message || 'Could not save marketplace settings');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/** Read-only preview of what the current settings would accept. */
+async function scanMarketplaceNow() {
+  const btn = $('#marketplace-scan');
+  if (btn) btn.disabled = true;
+  setMarketplaceHint('muted', 'Scanning marketplace…');
+
+  try {
+    const res = await fetch('/api/marketplace/scan', { method: 'POST' });
+    const data = await parseApiJson(res);
+    if (data.marketplaceStatus) paintMarketplaceStatus(data.marketplaceStatus);
+    renderMarketplaceOffers(data.matched || []);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Scan failed (${res.status})`);
+    setMarketplaceHint('ok', data.message || 'Scan finished');
+  } catch (err) {
+    setMarketplaceHint('fail', err.message || 'Could not scan the marketplace');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/** One full cycle now — accepts unless dry run is ticked. */
+async function runMarketplaceOnce() {
+  const btn = $('#marketplace-accept-now');
+  const dryRun = !!$('#marketplace-dry-run')?.checked;
+  if (!dryRun) {
+    const ratio = $('#marketplace-min-ratio')?.value || '1.5';
+    const max = $('#marketplace-max-accepts')?.value || '3';
+    const ok = window.confirm(
+      `Accept up to ${max} offer(s) at ratio ≥ ${ratio} right now?\n\nThis spends resources and cannot be undone.`,
+    );
+    if (!ok) return;
+  }
+  if (btn) btn.disabled = true;
+  setMarketplaceHint('muted', dryRun ? 'Dry run…' : 'Running marketplace cycle…');
+
+  try {
+    const res = await fetch('/api/marketplace/accept-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ dryRun }),
+    });
+    const data = await parseApiJson(res);
+    if (data.marketplaceStatus) paintMarketplaceStatus(data.marketplaceStatus);
+    if (data.totals) paintLifetimeTotals(data.totals);
+    renderMarketplaceOffers(data.offers || []);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Run failed (${res.status})`);
+    setMarketplaceHint('ok', data.message || 'Marketplace cycle finished');
+    fetchStatus();
+  } catch (err) {
+    setMarketplaceHint('fail', err.message || 'Could not run the marketplace cycle');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runMarketplaceNow() {
+  const btn = $('#marketplace-run-now');
+  if (btn) btn.disabled = true;
+  setMarketplaceHint('muted', 'Queueing marketplace cycle…');
+
+  try {
+    const res = await fetch('/api/marketplace/run-now', { method: 'POST' });
+    const data = await parseApiJson(res);
+    if (data.marketplaceStatus) paintMarketplaceStatus(data.marketplaceStatus);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Run now failed (${res.status})`);
+    setMarketplaceHint('ok', data.message || 'Marketplace cycle queued');
+  } catch (err) {
+    setMarketplaceHint('fail', err.message || 'Could not queue a marketplace cycle');
+  } finally {
+    if (btn) btn.disabled = false;
+    updateMarketplaceRunNowButtonFromForm();
+  }
+}
+
 $('#farm-list-save')?.addEventListener('click', saveFarmListForm);
 $('#farm-list-form')?.addEventListener('submit', ev => {
   ev.preventDefault();
@@ -2884,6 +3163,23 @@ $('#farm-list-send-all')?.addEventListener('click', sendAllFarmListsNow);
 $('#farm-list-discover')?.addEventListener('click', discoverFarmLists);
 $('#farm-list-check-all')?.addEventListener('click', () => setAllFarmListChecks(true));
 $('#farm-list-check-none')?.addEventListener('click', () => setAllFarmListChecks(false));
+$('#marketplace-save')?.addEventListener('click', saveMarketplaceForm);
+$('#marketplace-form')?.addEventListener('submit', ev => {
+  ev.preventDefault();
+  saveMarketplaceForm();
+});
+$('#marketplace-form')?.addEventListener('input', () => { marketplaceFormDirty = true; });
+$('#marketplace-enabled')?.addEventListener('change', () => {
+  marketplaceFormDirty = true;
+  updateMarketplaceRunNowButtonFromForm();
+});
+$('#marketplace-dry-run')?.addEventListener('change', () => { marketplaceFormDirty = true; });
+$$('.marketplace-give-cb').forEach(cb => {
+  cb.addEventListener('change', () => { marketplaceFormDirty = true; });
+});
+$('#marketplace-scan')?.addEventListener('click', scanMarketplaceNow);
+$('#marketplace-run-now')?.addEventListener('click', runMarketplaceNow);
+$('#marketplace-accept-now')?.addEventListener('click', runMarketplaceOnce);
 $('#proxy-add-btn')?.addEventListener('click', addProxyFromInput);
 $('#proxy-add-input')?.addEventListener('keydown', ev => {
   if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {

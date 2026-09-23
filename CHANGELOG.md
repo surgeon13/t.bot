@@ -4,7 +4,26 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 
 ## Unreleased
 
-_(nothing yet)_
+### Added
+
+- **Marketplace offer runner** — scans the marketplace offers tab on a timer and accepts
+  trades whose ratio is at least `marketplace.minRatio` (default `1.5`) in your favour.
+  Dashboard panel with on/off, ratio threshold, per-run cap, random interval, a
+  **Send away** resource filter, plus **Scan now** / **Run now** / **Run once**.
+  Honours the work/sleep, daily-schedule and micro-pause gates.
+  `dryRun` defaults to **true** so a fresh config never spends resources.
+  See [docs/marketplace.md](docs/marketplace.md).
+- **Lifetime total** — `marketplaceAccepts` in `data/totals-state.json`, shown as
+  **Offers** on the dashboard.
+
+### Fixed
+
+- **Linux install** — `scripts/install-system-deps.sh` resolves Chromium library names
+  per release, so Ubuntu 24.04+ and Debian 13+ (where six libs gained a `t64` suffix)
+  no longer abort the whole install before `npm install` runs. `install.sh` now covers
+  Debian/Ubuntu derivatives, survives a failed package step, works as root without
+  `sudo`, and takes prompt defaults when stdin is not a TTY. `install.ps1` checks
+  `$LASTEXITCODE` after `npm install` instead of printing "Done" on failure.
 
 ## 0.9.9 — 2026-06-16
 

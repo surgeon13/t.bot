@@ -84,6 +84,21 @@ const {
 } = require('./farmListState');
 const { runFarmListSchedulerLoop } = require('./farmListScheduler');
 const {
+  marketplaceSettings,
+  normalizeGiveResources,
+  describeMarketplaceSettings,
+  scanMarketplaceOffers,
+  runMarketplaceOffers,
+} = require('./marketplace');
+const {
+  marketplaceGuiStatus,
+  setEmbeddedMarketplaceSchedulerActive,
+  writeMarketplaceState,
+  readMarketplaceState,
+  postponeMarketplaceRun,
+} = require('./marketplaceState');
+const { runMarketplaceSchedulerLoop } = require('./marketplaceScheduler');
+const {
   workSleepConfigForApi,
   workSleepGuiStatus,
   applyWorkSleepConfigFromBody,
@@ -126,6 +141,9 @@ const GUI_FEATURES = [
   'work-sleep',
   'micro-pause',
   'daily-schedule',
+  'marketplace-config',
+  'marketplace-scan',
+  'marketplace-run',
 ];
 
 /* --------------------------------------------------------------------- */
@@ -394,6 +412,176 @@ function syncEmbeddedFarmSchedulerAfterConfigSave() {
   syncEmbeddedFarmScheduler();
 }
 
+/* ----- Marketplace offer runner ----- */
+
+/** @type {{ stop: boolean, runNow: boolean }|null} */
+let embeddedMarketControl = null;
+/** @type {Promise<{ reason: string }>|null} */
+let embeddedMarketTask = null;
+let embeddedMarketGen = 0;
+let lastMarketNotLoggedInLogAt = 0;
+
+function logMarketNotLoggedInOnce() {
+  const now = Date.now();
+  if (now - lastMarketNotLoggedInLogAt < 60_000) return;
+  lastMarketNotLoggedInLogAt = now;
+  log.warn(TAG, 'Marketplace scan skipped: not logged in');
+}
+
+/**
+ * One marketplace cycle inside the shared browser session.
+ * @param {{ bypassSleep?: boolean, bypassAutomationGate?: boolean, dryRun?: boolean, scanOnly?: boolean }} [options]
+ */
+async function runMarketplaceViaGui(options = {}) {
+  return lock.run(options.scanOnly ? 'marketplaceScan' : 'marketplaceRun', async () => {
+    try {
+      const gate = automationWindowAllowed();
+      if (!gate.allowed && !options.bypassAutomationGate) {
+        const message = gate.reason === 'daily-schedule'
+          ? 'Daily schedule off-hours — marketplace scan queued for next active slot'
+          : 'Automation paused (work/sleep)';
+        return { ok: false, status: 'skipped', message };
+      }
+      if (!options.bypassSleep) {
+        const wr = await waitForWorkPhase({});
+        if (wr === 'stopped') {
+          return { ok: false, status: 'skipped', message: 'Marketplace scan stopped' };
+        }
+      }
+      await ensureSession();
+      if (!loggedIn || !page || page.isClosed()) {
+        postponeMarketplaceRun();
+        logMarketNotLoggedInOnce();
+        return { ok: false, message: 'Not logged in' };
+      }
+      if (!(await ensureGameShell(page, { tag: TAG }))) {
+        loggedIn = false;
+        postponeMarketplaceRun();
+        logMarketNotLoggedInOnce();
+        return { ok: false, message: 'Game shell unreachable' };
+      }
+      if (options.scanOnly) {
+        const scan = await scanMarketplaceOffers(page);
+        return { ...scan, scanned: scan.offers.length, matched: scan.matched.length };
+      }
+      return runMarketplaceOffers(page, { dryRun: options.dryRun });
+    } catch (err) {
+      log.error(TAG, `Marketplace run failed: ${err.message}`);
+      return { ok: false, status: 'failed', message: err.message };
+    }
+  });
+}
+
+function stopEmbeddedMarketplaceScheduler() {
+  if (embeddedMarketControl) embeddedMarketControl.stop = true;
+}
+
+function syncEmbeddedMarketplaceScheduler() {
+  embeddedMarketGen += 1;
+  const gen = embeddedMarketGen;
+  stopEmbeddedMarketplaceScheduler();
+
+  const cfg = loadConfig();
+  const mp = marketplaceSettings(cfg);
+  if (process.env.GUI_NO_SCHEDULER === '1' || !mp.enabled) {
+    embeddedMarketControl = null;
+    embeddedMarketTask = null;
+    setEmbeddedMarketplaceSchedulerActive(false);
+    return;
+  }
+
+  const control = { stop: false, runNow: false };
+  embeddedMarketControl = control;
+  setEmbeddedMarketplaceSchedulerActive(true);
+  log.info(TAG, `Marketplace scheduler started (${describeMarketplaceSettings(mp)})`);
+
+  const st = readMarketplaceState();
+  if (!st?.nextRunAt || new Date(st.nextRunAt).getTime() > Date.now() + 60_000) {
+    writeMarketplaceState({
+      nextRunAt: new Date().toISOString(),
+      intervalMinutesMin: mp.intervalMinutesMin,
+      intervalMinutesMax: mp.intervalMinutesMax,
+    });
+  }
+
+  embeddedMarketTask = runMarketplaceSchedulerLoop({
+    control,
+    executeRun: runMarketplaceViaGui,
+  })
+    .then(result => {
+      log.info(TAG, `Marketplace scheduler stopped (${result.reason})`);
+      return result;
+    })
+    .catch(err => {
+      log.error(TAG, `Marketplace scheduler error: ${err.message}`);
+    })
+    .finally(() => {
+      if (gen !== embeddedMarketGen) return;
+      embeddedMarketControl = null;
+      embeddedMarketTask = null;
+      setEmbeddedMarketplaceSchedulerActive(false);
+      if (!guiShuttingDown && marketplaceSettings().enabled
+        && process.env.GUI_NO_SCHEDULER !== '1') {
+        log.warn(TAG, 'Marketplace scheduler exited unexpectedly — restarting in 2s');
+        setTimeout(() => {
+          if (gen === embeddedMarketGen) syncEmbeddedMarketplaceScheduler();
+        }, 2000);
+      }
+    });
+}
+
+function marketplaceConfigForApi(cfg = loadConfig()) {
+  const mp = marketplaceSettings(cfg);
+  return {
+    enabled: mp.enabled,
+    dryRun: mp.dryRun,
+    minRatio: mp.minRatio,
+    maxAcceptsPerRun: mp.maxAcceptsPerRun,
+    giveResources: mp.giveResources,
+    intervalMinutesMin: mp.intervalMinutesMin,
+    intervalMinutesMax: mp.intervalMinutesMax,
+  };
+}
+
+function marketplaceStatusForApi(cfg = loadConfig()) {
+  return {
+    ...marketplaceGuiStatus(cfg, readMarketplaceState()),
+    marketplaceAccepts: getTotals().marketplaceAccepts ?? 0,
+  };
+}
+
+function applyMarketplaceConfigFromBody(cfg, body = {}) {
+  if (!cfg.marketplace) cfg.marketplace = {};
+  const mkt = cfg.marketplace;
+
+  if (typeof body.enabled === 'boolean') mkt.enabled = body.enabled;
+  if (typeof body.dryRun === 'boolean') mkt.dryRun = body.dryRun;
+  if (body.minRatio !== undefined) {
+    const n = Number(body.minRatio);
+    if (Number.isFinite(n) && n > 0) mkt.minRatio = n;
+  }
+  if (body.maxAcceptsPerRun !== undefined) {
+    const n = Math.floor(Number(body.maxAcceptsPerRun));
+    if (Number.isFinite(n) && n >= 1) mkt.maxAcceptsPerRun = Math.min(25, n);
+  }
+  if (body.giveResources !== undefined) {
+    mkt.giveResources = normalizeGiveResources(body.giveResources);
+  }
+  if (body.intervalMinutesMin !== undefined) {
+    const n = Number(body.intervalMinutesMin);
+    if (Number.isFinite(n) && n >= 1) mkt.intervalMinutesMin = n;
+  }
+  if (body.intervalMinutesMax !== undefined) {
+    const n = Number(body.intervalMinutesMax);
+    if (Number.isFinite(n) && n >= 1) mkt.intervalMinutesMax = n;
+  }
+  const min = Math.max(1, Number(mkt.intervalMinutesMin) || 20);
+  const max = Math.max(min, Number(mkt.intervalMinutesMax) || 45);
+  mkt.intervalMinutesMin = min;
+  mkt.intervalMinutesMax = max;
+  return cfg;
+}
+
 function farmListConfigForApi(cfg = loadConfig()) {
   const st = readFarmListState();
   const fl = farmListSettings(cfg, { gameOrder: st?.gameOrder });
@@ -598,6 +786,10 @@ function ensureEmbeddedSchedulersRunning() {
   if (fl.enabled && farmListTargetCount(fl) && !embeddedFarmControl && !embeddedFarmTask) {
     log.info(TAG, 'Restarting farm list scheduler');
     syncEmbeddedFarmScheduler();
+  }
+  if (marketplaceSettings(cfg).enabled && !embeddedMarketControl && !embeddedMarketTask) {
+    log.info(TAG, 'Restarting marketplace scheduler');
+    syncEmbeddedMarketplaceScheduler();
   }
 }
 
@@ -1218,6 +1410,8 @@ app.get('/api/status', async (_req, res) => {
     proxyConfig: proxyConfigForApi(),
     farmListConfig: farmListConfigForApi(cfg),
     farmListStatus: farmListStatusForApi(cfg),
+    marketplaceConfig: marketplaceConfigForApi(cfg),
+    marketplaceStatus: marketplaceStatusForApi(cfg),
     workSleepConfig: workSleepConfigForApi(cfg),
     workSleepStatus: workSleepGuiStatus(cfg),
     microPauseConfig: microPauseConfigForApi(cfg),
@@ -1493,6 +1687,90 @@ app.get('/api/farm-list/discover', async (_req, res) => {
     };
   });
   res.json(result);
+});
+
+app.get('/api/config/marketplace', (_req, res) => {
+  const cfg = loadConfig();
+  res.json({
+    ok: true,
+    marketplace: marketplaceConfigForApi(cfg),
+    marketplaceStatus: marketplaceStatusForApi(cfg),
+  });
+});
+
+app.put('/api/config/marketplace', (req, res) => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(400).json({
+      ok: false,
+      message: 'Expected JSON object in request body. Hard-refresh the dashboard (Ctrl+F5) and try Save again.',
+    });
+  }
+  try {
+    const cfg = applyMarketplaceConfigFromBody(loadConfig(), req.body);
+    saveConfig(cfg);
+    syncEmbeddedMarketplaceScheduler();
+    const mp = marketplaceSettings(cfg);
+    res.json({
+      ok: true,
+      marketplace: marketplaceConfigForApi(cfg),
+      marketplaceStatus: marketplaceStatusForApi(cfg),
+      message: mp.enabled
+        ? mp.dryRun
+          ? `Marketplace saved — DRY RUN: matches are logged, nothing is accepted (${describeMarketplaceSettings(mp)}).`
+          : `Marketplace saved — will accept offers at ${describeMarketplaceSettings(mp)}.`
+        : 'Marketplace runner is off.',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+app.post('/api/marketplace/run-now', (_req, res) => {
+  const cfg = loadConfig();
+  const mp = marketplaceSettings(cfg);
+  if (!mp.enabled) {
+    return res.status(400).json({ ok: false, message: 'Turn on the Marketplace runner and Save first.' });
+  }
+  if (process.env.GUI_NO_SCHEDULER === '1') {
+    return res.status(400).json({
+      ok: false,
+      message: 'Embedded schedulers disabled (GUI_NO_SCHEDULER=1). Use Scan now.',
+    });
+  }
+  if (!embeddedMarketControl) syncEmbeddedMarketplaceScheduler();
+  if (!embeddedMarketControl) {
+    return res.status(503).json({ ok: false, message: 'Marketplace scheduler could not start. Check bot.log.' });
+  }
+  embeddedMarketControl.runNow = true;
+  embeddedMarketControl.bypassSleepOnce = true;
+  log.info(TAG, 'Marketplace run-now requested from GUI');
+  res.json({
+    ok: true,
+    message: 'Marketplace cycle requested — starting as soon as possible.',
+    marketplaceStatus: marketplaceStatusForApi(cfg),
+  });
+});
+
+/** Read-only: lists what the current settings would match, accepts nothing. */
+app.post('/api/marketplace/scan', async (_req, res) => {
+  const result = await runMarketplaceViaGui({ bypassSleep: true, scanOnly: true });
+  res.json({
+    ...result,
+    marketplaceStatus: marketplaceStatusForApi(),
+  });
+});
+
+/** One cycle right now. Honours the saved dry-run flag unless the body overrides it. */
+app.post('/api/marketplace/accept-now', async (req, res) => {
+  const mp = marketplaceSettings();
+  const dryRun = typeof req.body?.dryRun === 'boolean' ? req.body.dryRun : mp.dryRun;
+  log.info(TAG, `Marketplace accept-now requested (${dryRun ? 'dry run' : 'live'}, ratio ≥ ${mp.minRatio})`);
+  const result = await runMarketplaceViaGui({ bypassSleep: true, dryRun });
+  res.json({
+    ...result,
+    marketplaceStatus: marketplaceStatusForApi(),
+    totals: getTotals(),
+  });
 });
 
 app.post('/api/schedule/run-now', (_req, res) => {
@@ -2072,6 +2350,7 @@ const server = app.listen(PORT, HOST, () => {
     }
     syncEmbeddedScheduler();
     syncEmbeddedFarmScheduler();
+    syncEmbeddedMarketplaceScheduler();
   })();
 });
 
@@ -2120,11 +2399,15 @@ async function shutdown() {
   log.info(TAG, 'Shutting down GUI');
   stopEmbeddedScheduler();
   stopEmbeddedFarmScheduler();
+  stopEmbeddedMarketplaceScheduler();
   if (embeddedScheduleTask) {
     try { await embeddedScheduleTask; } catch { /* already logged */ }
   }
   if (embeddedFarmTask) {
     try { await embeddedFarmTask; } catch { /* already logged */ }
+  }
+  if (embeddedMarketTask) {
+    try { await embeddedMarketTask; } catch { /* already logged */ }
   }
   try { server.close(); } catch {}
   await closeSession();

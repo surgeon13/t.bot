@@ -154,6 +154,25 @@ See **[farm-list.md](farm-list.md)** for GUI usage.
 | `farmList.intervalMinutesMin` | number | `5` | Minimum minutes until the next send cycle. |
 | `farmList.intervalMinutesMax` | number | `15` | Maximum minutes (random delay in range). |
 
+### Marketplace offers (`marketplace`)
+
+See **[marketplace.md](marketplace.md)** for GUI usage and how to verify the ratio
+column before letting it trade.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `marketplace.enabled` | boolean | `false` | Enable the marketplace scan timer in the GUI. |
+| `marketplace.dryRun` | boolean | `true` | Log matching offers without accepting. **A missing key also means `true`** — a partial config never spends resources. |
+| `marketplace.minRatio` | number | `1.5` | Minimum ratio in your favour; `1.5` means you receive 50% more than you send. Values `≤ 0` are ignored. |
+| `marketplace.maxAcceptsPerRun` | number | `3` | Most offers accepted in one cycle, clamped to 1–25. |
+| `marketplace.giveResources` | string[] | all four | Only accept offers asking for these resources (`wood`, `clay`, `iron`, `crop`). Empty or unrecognised → all four. |
+| `marketplace.intervalMinutesMin` | number | `20` | Minimum minutes until the next scan. |
+| `marketplace.intervalMinutesMax` | number | `45` | Maximum minutes (random delay in range; raised to min when lower). |
+
+Run state is stored in **`data/marketplace-state.json`** (`nextRunAt`, `lastAccepted`,
+`lastMatched`, `lastOffers`). Lifetime accepts are counted as `marketplaceAccepts` in
+`data/totals-state.json`.
+
 ### Work / sleep rhythm (`workSleep`)
 
 Alternates **work** windows (automation allowed) and **sleep** windows (farm list + bonus schedulers pause). Each window length is random between min and max **minutes**. The GUI may close the browser during sleep (see [gui.md](gui.md)).

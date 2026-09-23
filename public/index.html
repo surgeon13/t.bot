@@ -274,6 +274,63 @@
             <p class="farm-list-hint muted" id="farm-list-save-hint">Save — uses the green farm list button on the village screen</p>
           </form>
         </section>
+
+        <section class="marketplace-panel" id="marketplace-panel">
+          <form id="marketplace-form" class="marketplace-form" autocomplete="off">
+            <div class="marketplace-status-row">
+              <span class="proxy-bar-label">Marketplace</span>
+              <span class="marketplace-dot" id="marketplace-dot" aria-hidden="true"></span>
+              <span class="marketplace-status-text" id="marketplace-status-text">—</span>
+              <span class="marketplace-accept-total muted" id="marketplace-accept-total" title="Lifetime accepted offers (data/totals-state.json)">0 accepted</span>
+            </div>
+            <p class="marketplace-lead muted">
+              Each cycle reads the marketplace offers table and accepts trades whose ratio is at
+              least the minimum — i.e. you get back more than you send.
+            </p>
+            <div class="marketplace-fields-row">
+              <label class="proxy-check" title="Scan the offers table on a timer in the background">
+                <input type="checkbox" id="marketplace-enabled" name="enabled" />
+                <span>Runner ON</span>
+              </label>
+              <label class="proxy-check marketplace-dry-check" title="Log matching offers without accepting them — leave on until the ratio column reads correctly">
+                <input type="checkbox" id="marketplace-dry-run" name="dryRun" />
+                <span>Dry run</span>
+              </label>
+              <label class="schedule-interval-lbl">
+                <span>Ratio ≥</span>
+                <input class="proxy-inp schedule-hours" type="number" id="marketplace-min-ratio" name="minRatio" min="1" step="0.1" value="1.5" title="Minimum ratio in your favour (1.5 = get 50% more than you give)" />
+              </label>
+              <label class="schedule-interval-lbl">
+                <span>Max</span>
+                <input class="proxy-inp schedule-hours" type="number" id="marketplace-max-accepts" name="maxAcceptsPerRun" min="1" max="25" step="1" value="3" title="Most offers to accept in one cycle" />
+                <span>/run</span>
+              </label>
+              <label class="schedule-interval-lbl">
+                <span>Every</span>
+                <input class="proxy-inp schedule-hours" type="number" id="marketplace-min" name="intervalMinutesMin" min="1" step="1" value="20" title="Minimum minutes until next scan" />
+                <span>–</span>
+                <input class="proxy-inp schedule-hours" type="number" id="marketplace-max" name="intervalMinutesMax" min="1" step="1" value="45" title="Maximum minutes until next scan" />
+                <span>min</span>
+              </label>
+            </div>
+            <div class="marketplace-give-row">
+              <span class="marketplace-give-lbl">Send away</span>
+              <label class="proxy-check"><input type="checkbox" class="marketplace-give-cb" id="marketplace-give-wood" value="wood" /><span>Wood</span></label>
+              <label class="proxy-check"><input type="checkbox" class="marketplace-give-cb" id="marketplace-give-clay" value="clay" /><span>Clay</span></label>
+              <label class="proxy-check"><input type="checkbox" class="marketplace-give-cb" id="marketplace-give-iron" value="iron" /><span>Iron</span></label>
+              <label class="proxy-check"><input type="checkbox" class="marketplace-give-cb" id="marketplace-give-crop" value="crop" /><span>Crop</span></label>
+              <button type="button" id="marketplace-save" class="proxy-save proxy-btn-sm">Save</button>
+              <button type="button" id="marketplace-scan" class="ghost proxy-btn-sm" title="Read the offers table now and list matches — accepts nothing">Scan now</button>
+              <button type="button" id="marketplace-run-now" class="ghost proxy-btn-sm" title="Queue the next cycle on the runner (Runner must be ON)">Run now</button>
+              <button type="button" id="marketplace-accept-now" class="proxy-save proxy-btn-sm marketplace-accept-btn" title="Run one cycle right now">Run once</button>
+            </div>
+            <div id="marketplace-offers" class="marketplace-offers" role="list" aria-label="Matching offers"></div>
+            <p class="marketplace-offers-empty muted" id="marketplace-offers-empty">Use Scan now to see what the current settings would match.</p>
+            <p class="marketplace-line muted" id="marketplace-next-line">—</p>
+            <p class="marketplace-line marketplace-line-next-red" id="marketplace-next-approx">Next scan approx: —</p>
+            <p class="marketplace-hint muted" id="marketplace-save-hint">Save — reads the ratio column on the marketplace offers tab</p>
+          </form>
+        </section>
     </div>
 
     <section class="card totals-card">
@@ -319,6 +376,11 @@
             <span class="total-value" id="t-farm-list">0</span>
             <span class="total-label">Farm lists</span>
             <span class="total-help">Rally list Start clicks</span>
+          </div>
+          <div class="total">
+            <span class="total-value" id="t-marketplace">0</span>
+            <span class="total-label">Offers</span>
+            <span class="total-help">Marketplace trades accepted</span>
           </div>
         </div>
       </section>

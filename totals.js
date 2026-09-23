@@ -15,6 +15,7 @@ const DEFAULT_TOTALS = {
   ironBonuses: 0,
   cropBonuses: 0,
   farmListSends: 0,
+  marketplaceAccepts: 0,
 };
 
 let totals = { ...DEFAULT_TOTALS };
@@ -68,6 +69,15 @@ function incrementFarmListSend(listName) {
   log.info('totals', `Total farm list sends: ${totals.farmListSends}`);
 }
 
+/** @param {string} [summary] Short description of the accepted offer. */
+function incrementMarketplaceAccept(summary) {
+  totals.marketplaceAccepts = (Number(totals.marketplaceAccepts) || 0) + 1;
+  saveTotals();
+  const label = summary ? `${summary}` : 'offer';
+  log.info('marketplace', `Accepted ${label} — lifetime accepts: ${totals.marketplaceAccepts}`);
+  return totals.marketplaceAccepts;
+}
+
 function getTotals() {
   return { ...totals };
 }
@@ -84,6 +94,7 @@ module.exports = {
   incrementHeroDangerBonus,
   incrementResourceBonus,
   incrementFarmListSend,
+  incrementMarketplaceAccept,
   getTotals,
   logAllTotals,
 };

@@ -10,7 +10,7 @@ The bot watches the required video ads and clicks through Travian’s dialogs. T
 
 ## Features (0.9.6)
 
-- **Web GUI** — per-bonus buttons, hero stats, adventures list, **farm list** runner, live log, **Claim all available resources**, **Quit bot**
+- **Web GUI** — per-bonus buttons, hero stats, adventures list, **farm list** runner, **marketplace offers** runner, live log, **Claim all available resources**, **Quit bot**
 - **Work/sleep rhythm** — random work and sleep windows; schedulers pause during sleep
 - **Daily schedule** — half-hour slots (local time); optional **Off / P1 / P2** proxy per hour; current hour highlighted
 - **Random micro-pauses** — brief strict stops between automated runs
@@ -32,6 +32,7 @@ The bot watches the required video ads and clicks through Travian’s dialogs. T
 | Periodic scheduler | [docs/scheduler.md](docs/scheduler.md) |
 | Web GUI & API | [docs/gui.md](docs/gui.md) |
 | Farm list runner | [docs/farm-list.md](docs/farm-list.md) |
+| Marketplace offers | [docs/marketplace.md](docs/marketplace.md) |
 | Resource +15% bonuses | [docs/resource-bonuses.md](docs/resource-bonuses.md) |
 | Login, videos, headless | [docs/troubleshooting.md](docs/troubleshooting.md) |
 | Module map | [docs/architecture.md](docs/architecture.md) |
@@ -142,6 +143,9 @@ npm run gui
 | `dailySchedule.enabled` | `false` | Only run schedulers in enabled half-hour slots |
 | `farmList.enabled` | `false` | Farm list timer in GUI |
 | `farmList.sendAllMode` | `false` | Use Travian **Start all farm lists** button |
+| `marketplace.enabled` | `false` | Marketplace offer runner in GUI |
+| `marketplace.minRatio` | `1.5` | Accept offers at this ratio or better |
+| `marketplace.dryRun` | `true` | Log matches without accepting (also true when missing) |
 
 See [docs/configuration.md](docs/configuration.md) for every field and state file.
 
@@ -161,6 +165,7 @@ See [docs/configuration.md](docs/configuration.md) for every field and state fil
 | `claim-all-bonuses.js` / `claim-resource-bonuses.js` | CLI entry wrappers |
 | `scheduler.js` / `scheduleState.js` | Periodic bonus runs |
 | `farmList.js` / `farmListScheduler.js` | Farm list sends + timer |
+| `marketplace.js` / `marketplaceScheduler.js` | Marketplace offer scan + timer |
 | `workSleep.js` / `microPause.js` / `dailySchedule.js` | Automation pause gates |
 | `sessionGate.js` | Browser keep-open policy (GUI) |
 | `terminalControl.js` | `status` / `stop` / `run` during tasks |

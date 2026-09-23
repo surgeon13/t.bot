@@ -69,6 +69,7 @@ flowchart LR
 | `claim-resource-bonuses.js` | `resources` | One-shot forced resources |
 | `scheduler.js` | `schedule` | Loop calling `claimJob.runClaimAllBonuses()` |
 | `farmListScheduler.js` | _(GUI only)_ | Farm list min–max timer |
+| `marketplaceScheduler.js` | _(GUI only)_ | Marketplace offer scan min–max timer |
 
 ## Pause and session modules
 
@@ -152,6 +153,10 @@ The GUI keeps one `browser` + `context` + `page` and serializes actions with `Ac
 | `farmList.js` | Open farm list page; send all checked lists or **Start all** mode |
 | `farmListState.js` | `farm-list-state.json`, GUI status, random next-run time |
 | `farmListScheduler.js` | Min–max minute wait loop; same pause gates as bonus scheduler |
+| `marketplace.js` | Open marketplace offers tab; parse the ratio column; accept matching trades |
+| `marketplaceConfig.js` | Ratio / per-run cap / resource-filter normalization (dry run defaults on) |
+| `marketplaceState.js` | `marketplace-state.json`, GUI status, random next-run time |
+| `marketplaceScheduler.js` | Min–max minute wait loop; same pause gates as farm list |
 | `logger.js` | Console + `data/bot.log` + SSE subscribers |
 | `utils.js` | `randomDelay()` from config |
 | `terminalControl.js` | `status` / `stop` / `run` during tasks |

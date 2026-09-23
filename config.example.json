@@ -39,6 +39,15 @@
     "intervalMinutesMin": 5,
     "intervalMinutesMax": 15
   },
+  "marketplace": {
+    "enabled": false,
+    "dryRun": true,
+    "minRatio": 1.5,
+    "maxAcceptsPerRun": 3,
+    "giveResources": ["wood", "clay", "iron", "crop"],
+    "intervalMinutesMin": 20,
+    "intervalMinutesMax": 45
+  },
   "workSleep": {
     "enabled": false,
     "workMinutesMin": 30,

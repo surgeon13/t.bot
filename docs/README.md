@@ -12,6 +12,7 @@ This folder contains detailed guides. For a quick start, see the [main README](.
 | [Web GUI](gui.md) | `npm run gui`, panels, API, environment variables |
 | [Resource bonuses](resource-bonuses.md) | Shop flow, claimable vs active, batch claim |
 | [Farm list runner](farm-list.md) | Checked lists per cycle, send-all mode, min–max minutes |
+| [Marketplace offers](marketplace.md) | Ratio threshold, dry run, per-run cap, resource filter |
 | [Troubleshooting](troubleshooting.md) | Login, videos, headless, debug snapshots |
 | [Architecture](architecture.md) | Module map and data flow |
 
@@ -22,7 +23,7 @@ t.bot automates **watching Travian Legends video ads** to claim:
 1. **Hero adventure bonuses** — time reduction (−25% travel) and danger reduction (on the Adventures page).
 2. **Resource production bonuses** — +15% Wood / Clay / Iron / Crop for ~8 hours (shop → **Advantages** → purple **Activate** + video icon).
 
-The GUI can send your hero to adventures and run farm lists on a timer. Scheduled bonus runs do **not** auto-send the hero.
+The GUI can send your hero to adventures, run farm lists on a timer, and accept marketplace offers above a ratio you set. Scheduled bonus runs do **not** auto-send the hero.
 
 ## All npm commands
 
