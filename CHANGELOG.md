@@ -13,6 +13,13 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
   Honours the work/sleep, daily-schedule and micro-pause gates.
   `dryRun` defaults to **true** so a fresh config never spends resources.
   See [docs/marketplace.md](docs/marketplace.md).
+- **Per-village marketplace** — pick which villages the runner trades from
+  (**Load from game** → tick → Save). Each village has its own marketplace and
+  merchants, so each is a full cycle: switch, sort, scan, accept. Villages are
+  keyed by Travian's village id so renaming one in game does not break the
+  selection, a newly discovered village starts unticked, an unreachable village
+  does not stop the others, and the runner returns to the village it started in.
+  Nothing ticked keeps the old behaviour (trade in the current village).
 - **Lifetime total** — `marketplaceAccepts` in `data/totals-state.json`, shown as
   **Offers** on the dashboard.
 

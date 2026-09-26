@@ -11,6 +11,8 @@ you give away.
 
 Each cycle the runner:
 
+0. **Switches to each village you picked** (see below) and runs the whole cycle
+   there, one village at a time, before moving on.
 1. Opens the marketplace offers tab (`build.php?gid=17`).
 2. **Sorts by the ratio column, best first.** The offers table runs to many pages;
    without this a good offer three pages deep is never seen. The header toggles, so
@@ -34,6 +36,25 @@ ratio; hover it to see what the column said.
 It pauses under the same gates as the farm list runner: **work/sleep**,
 **daily schedule** off-hours, and **micro-pauses**.
 
+## Which village it trades from
+
+Every village has its own marketplace and its own merchants, so the runner works
+one village at a time.
+
+**Load from game** reads your village list (name, coordinates, capital marked ★).
+Tick the villages to trade from and **Save**. Most players tick just the capital.
+
+- **Nothing ticked** — the runner trades in whichever village the browser happens
+  to be showing. That is the old behaviour and stays the default.
+- **One or more ticked** — each is visited in turn: switch, sort, scan, accept.
+  A village that cannot be reached is reported and the rest still run.
+- The runner **returns to the village it started in** when it finishes, so it does
+  not leave the farm list runner or your own browsing somewhere unexpected.
+
+Villages are matched by Travian's village id, not by name, so renaming a village
+in game does not break the selection. A newly discovered village is **unticked**
+until you tick it — loading the list can never widen where the bot trades.
+
 ## Dashboard panel
 
 | Control | Meaning |
@@ -44,6 +65,7 @@ It pauses under the same gates as the farm list runner: **work/sleep**,
 | **Max … /run** | Most offers to accept in a single cycle (1–25) |
 | **Every … – … min** | Random wait between cycles |
 | **Send away** | Only accept offers that ask for these resources |
+| **Villages** | Which villages to trade from — **Load from game**, then tick |
 | **Scan now** | Read the table and list matches — accepts nothing |
 | **Run now** | Queue the next cycle on the runner (Runner must be ON) |
 | **Run once** | Run one cycle immediately (asks for confirmation when not a dry run) |
@@ -76,6 +98,7 @@ server does not use a `td.ratio` column — open an issue with the row HTML.
   "minRatio": 1.5,
   "maxAcceptsPerRun": 3,
   "giveResources": ["wood", "clay", "iron", "crop"],
+  "villages": [],
   "intervalMinutesMin": 20,
   "intervalMinutesMax": 45
 }
@@ -88,6 +111,7 @@ server does not use a `td.ratio` column — open an issue with the row HTML.
 | `minRatio` | `1.5` | Values `≤ 0` are ignored and the default kept |
 | `maxAcceptsPerRun` | `3` | Clamped to 1–25 |
 | `giveResources` | all four | Empty or unrecognised entries fall back to all four |
+| `villages` | `[]` | `{ "did": "12345", "name": "Capital", "enabled": true }` — empty means "current village" |
 | `intervalMinutesMin` | `20` | Minimum 1 |
 | `intervalMinutesMax` | `45` | Raised to `intervalMinutesMin` when lower |
 
@@ -98,6 +122,7 @@ State lives in `data/marketplace-state.json`; lifetime accepts are counted in
 
 | Route | Purpose |
 |-------|---------|
+| `GET /api/marketplace/villages` | Read the village list from the game and merge it with what is saved |
 | `GET /api/config/marketplace` | Current settings + status |
 | `PUT /api/config/marketplace` | Save settings (restarts the timer) |
 | `POST /api/marketplace/scan` | Read-only preview of matches |
@@ -115,6 +140,8 @@ State lives in `data/marketplace-state.json`; lifetime accepts are counted in
 | Merchants free | `.merchantsInformation .available` (e.g. `11/14`) |
 | Pages | `.pagination .pageIndex` |
 | Accept | `td.accept button` |
+| Village list | `a[href*="newdid="]` in the sidebar, with `.name` and `.coordinateX/Y` |
+| Active village | the sidebar's `.active` entry — **not** the URL, which only says what was requested |
 
 ## Limits
 

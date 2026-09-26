@@ -324,6 +324,14 @@
               <button type="button" id="marketplace-run-now" class="ghost proxy-btn-sm" title="Queue the next cycle on the runner (Runner must be ON)">Run now</button>
               <button type="button" id="marketplace-accept-now" class="proxy-save proxy-btn-sm marketplace-accept-btn" title="Run one cycle right now">Run once</button>
             </div>
+            <div class="marketplace-villages-head">
+              <span class="marketplace-give-lbl">Villages</span>
+              <button type="button" id="marketplace-load-villages" class="ghost proxy-btn-sm" title="Read your village list from the game">Load from game</button>
+              <button type="button" id="marketplace-villages-all" class="ghost proxy-btn-sm" title="Trade from every village">All</button>
+              <button type="button" id="marketplace-villages-none" class="ghost proxy-btn-sm" title="Untick every village">None</button>
+            </div>
+            <div id="marketplace-villages" class="marketplace-villages" role="list" aria-label="Villages to trade from"></div>
+            <p class="marketplace-villages-empty muted" id="marketplace-villages-empty">No village picked — trades run in whichever village the browser is on. Load from game to choose.</p>
             <div id="marketplace-offers" class="marketplace-offers" role="list" aria-label="Matching offers"></div>
             <p class="marketplace-offers-empty muted" id="marketplace-offers-empty">Use Scan now to see what the current settings would match.</p>
             <p class="marketplace-line muted" id="marketplace-next-line">—</p>

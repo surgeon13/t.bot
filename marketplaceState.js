@@ -32,6 +32,7 @@ function readMarketplaceState() {
  * @param {number} [p.lastMatched]
  * @param {number} [p.lastAccepted]
  * @param {Array<object>} [p.lastOffers]
+ * @param {Array<object>} [p.lastVillages] per-village breakdown of the last run
  * @param {string} [p.lastMessage]
  * @param {number} p.intervalMinutesMin
  * @param {number} p.intervalMinutesMax
@@ -46,6 +47,7 @@ function writeMarketplaceState(p) {
     lastMatched: keep('lastMatched', 0),
     lastAccepted: keep('lastAccepted', 0),
     lastOffers: keep('lastOffers', []),
+    lastVillages: keep('lastVillages', []),
     lastMessage: keep('lastMessage', null),
     intervalMinutesMin: keep('intervalMinutesMin', undefined),
     intervalMinutesMax: keep('intervalMinutesMax', undefined),
@@ -144,6 +146,10 @@ function marketplaceGuiStatus(cfg = loadConfig(), state = readMarketplaceState()
     lastMatched: state?.lastMatched ?? 0,
     lastAccepted: state?.lastAccepted ?? 0,
     lastOffers: Array.isArray(state?.lastOffers) ? state.lastOffers : [],
+    lastVillages: Array.isArray(state?.lastVillages) ? state.lastVillages : [],
+    villages: settings.villages,
+    activeVillageCount: settings.activeVillageCount,
+    villageCount: settings.villageCount,
     lastMessage: state?.lastMessage || null,
     statusLine,
     schedulerRunning: embeddedMarketplaceSchedulerActive,

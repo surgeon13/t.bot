@@ -86,10 +86,13 @@ const { runFarmListSchedulerLoop } = require('./farmListScheduler');
 const {
   marketplaceSettings,
   normalizeGiveResources,
+  normalizeVillagesFromConfig,
+  mergeVillages,
   describeMarketplaceSettings,
-  scanMarketplaceOffers,
+  scanMarketplaceAcrossVillages,
   runMarketplaceOffers,
 } = require('./marketplace');
+const { loadVillages } = require('./villages');
 const {
   marketplaceGuiStatus,
   setEmbeddedMarketplaceSchedulerActive,
@@ -144,6 +147,7 @@ const GUI_FEATURES = [
   'marketplace-config',
   'marketplace-scan',
   'marketplace-run',
+  'marketplace-villages',
 ];
 
 /* --------------------------------------------------------------------- */
@@ -461,7 +465,7 @@ async function runMarketplaceViaGui(options = {}) {
         return { ok: false, message: 'Game shell unreachable' };
       }
       if (options.scanOnly) {
-        const scan = await scanMarketplaceOffers(page);
+        const scan = await scanMarketplaceAcrossVillages(page);
         return { ...scan, scanned: scan.offers.length, matched: scan.matched.length };
       }
       return runMarketplaceOffers(page, { dryRun: options.dryRun });
@@ -538,6 +542,8 @@ function marketplaceConfigForApi(cfg = loadConfig()) {
     minRatio: mp.minRatio,
     maxAcceptsPerRun: mp.maxAcceptsPerRun,
     giveResources: mp.giveResources,
+    villages: mp.villages,
+    activeVillageCount: mp.activeVillageCount,
     intervalMinutesMin: mp.intervalMinutesMin,
     intervalMinutesMax: mp.intervalMinutesMax,
   };
@@ -566,6 +572,9 @@ function applyMarketplaceConfigFromBody(cfg, body = {}) {
   }
   if (body.giveResources !== undefined) {
     mkt.giveResources = normalizeGiveResources(body.giveResources);
+  }
+  if (body.villages !== undefined) {
+    mkt.villages = normalizeVillagesFromConfig(body.villages);
   }
   if (body.intervalMinutesMin !== undefined) {
     const n = Number(body.intervalMinutesMin);
@@ -1749,6 +1758,24 @@ app.post('/api/marketplace/run-now', (_req, res) => {
     message: 'Marketplace cycle requested — starting as soon as possible.',
     marketplaceStatus: marketplaceStatusForApi(cfg),
   });
+});
+
+app.get('/api/marketplace/villages', async (_req, res) => {
+  const result = await withSession('marketplaceVillages', async (p) => {
+    const discovered = await loadVillages(p);
+    if (!discovered.length) {
+      return { ok: false, message: 'No villages found — is the village list visible in game?' };
+    }
+    const cfg = loadConfig();
+    const villages = mergeVillages(cfg.marketplace?.villages || [], discovered);
+    return {
+      ok: true,
+      villages,
+      discoveredCount: discovered.length,
+      message: `Found ${discovered.length} village(s) — tick the ones to trade from, then Save.`,
+    };
+  });
+  res.json(result);
 });
 
 /** Read-only: lists what the current settings would match, accepts nothing. */

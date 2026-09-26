@@ -45,6 +45,7 @@
     "minRatio": 1.5,
     "maxAcceptsPerRun": 3,
     "giveResources": ["wood", "clay", "iron", "crop"],
+    "villages": [],
     "intervalMinutesMin": 20,
     "intervalMinutesMax": 45
   },

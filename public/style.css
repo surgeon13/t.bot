@@ -1623,6 +1623,42 @@ button.ghost.adventures-send-btn:hover:not([disabled]) {
   background: var(--text-mute);
   flex-shrink: 0;
 }
+.marketplace-villages-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.marketplace-villages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.marketplace-villages:empty { display: none; }
+.marketplace-villages:not(:empty) + .marketplace-villages-empty { display: none; }
+.marketplace-villages-empty {
+  margin: 0;
+  font-size: var(--font-xs);
+  line-height: 1.3;
+}
+.marketplace-village-coords {
+  font-size: var(--font-tiny);
+  color: var(--text-mute);
+}
+.marketplace-village-capital {
+  font-size: var(--font-tiny);
+  color: var(--warn);
+}
+.marketplace-offer-village {
+  flex-shrink: 0;
+  font-size: var(--font-tiny);
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+
 /* Number spinners plus a decimal need more room than the 52px hour inputs. */
 #marketplace-min-ratio {
   width: 68px;

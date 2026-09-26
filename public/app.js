@@ -2934,6 +2934,13 @@ function renderMarketplaceOffers(offers) {
       row.appendChild(warn);
     }
 
+    if (offer.village) {
+      const vil = document.createElement('span');
+      vil.className = 'marketplace-offer-village';
+      vil.textContent = offer.village;
+      row.appendChild(vil);
+    }
+
     if (offer.merchants) {
       const merch = document.createElement('span');
       merch.className = 'marketplace-offer-player muted';
@@ -2953,6 +2960,67 @@ function renderMarketplaceOffers(offers) {
   }
 }
 
+function renderMarketplaceVillages(villages) {
+  const container = $('#marketplace-villages');
+  const empty = $('#marketplace-villages-empty');
+  if (!container) return;
+  container.textContent = '';
+
+  const list = Array.isArray(villages) ? villages : [];
+  if (!list.length) {
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  for (const v of list) {
+    const label = document.createElement('label');
+    label.className = 'proxy-check marketplace-village';
+    label.setAttribute('role', 'listitem');
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'marketplace-village-cb';
+    cb.checked = !!v.enabled;
+    // did is the identity; names change when a player renames a village.
+    cb.dataset.did = String(v.did);
+    label.appendChild(cb);
+
+    const name = document.createElement('span');
+    name.textContent = v.name || `village ${v.did}`;
+    label.appendChild(name);
+
+    if (v.capital) {
+      const cap = document.createElement('span');
+      cap.className = 'marketplace-village-capital';
+      cap.textContent = '★';
+      cap.title = 'Capital';
+      label.appendChild(cap);
+    }
+    if (v.x != null && v.y != null) {
+      const co = document.createElement('span');
+      co.className = 'marketplace-village-coords';
+      co.textContent = `(${v.x}|${v.y})`;
+      label.appendChild(co);
+    }
+
+    container.appendChild(label);
+  }
+}
+
+function collectMarketplaceVillagesFromDom() {
+  return $$('#marketplace-villages .marketplace-village-cb').map(cb => ({
+    did: cb.dataset.did,
+    name: cb.parentElement?.querySelector('span')?.textContent || '',
+    enabled: cb.checked,
+  }));
+}
+
+function setAllMarketplaceVillages(checked) {
+  $$('#marketplace-villages .marketplace-village-cb').forEach(cb => { cb.checked = checked; });
+  marketplaceFormDirty = true;
+}
+
 function paintMarketplaceStatus(st) {
   const dot = $('#marketplace-dot');
   const txt = $('#marketplace-status-text');
@@ -2964,9 +3032,11 @@ function paintMarketplaceStatus(st) {
 
   if (st.enabled && st.schedulerRunning) {
     dot.className = st.dryRun ? 'marketplace-dot warn' : 'marketplace-dot on';
+    const n = st.activeVillageCount ?? 0;
+    const where = n === 0 ? 'current village' : (n === 1 ? '1 village' : `${n} villages`);
     txt.textContent = st.dryRun
-      ? `Runner ON · DRY RUN · ratio ≥ ${st.minRatio}`
-      : `Runner ON · ratio ≥ ${st.minRatio} · up to ${st.maxAcceptsPerRun}/run`;
+      ? `Runner ON · DRY RUN · ratio ≥ ${st.minRatio} · ${where}`
+      : `Runner ON · ratio ≥ ${st.minRatio} · ${where} · up to ${st.maxAcceptsPerRun}/run`;
   } else if (st.enabled) {
     dot.className = 'marketplace-dot warn';
     txt.textContent = 'Runner ON — timer not running';
@@ -3033,6 +3103,7 @@ function fillMarketplaceForm(cfg) {
 
   const give = Array.isArray(cfg.giveResources) ? cfg.giveResources : [];
   $$('.marketplace-give-cb').forEach(cb => { cb.checked = give.includes(cb.value); });
+  renderMarketplaceVillages(cfg.villages || []);
   updateMarketplaceRunNowButtonFromForm();
 }
 
@@ -3043,6 +3114,7 @@ function collectMarketplaceForm() {
     minRatio: Number($('#marketplace-min-ratio')?.value) || 1.5,
     maxAcceptsPerRun: Number($('#marketplace-max-accepts')?.value) || 3,
     giveResources: $$('.marketplace-give-cb').filter(cb => cb.checked).map(cb => cb.value),
+    villages: collectMarketplaceVillagesFromDom(),
     intervalMinutesMin: Number($('#marketplace-min')?.value) || 20,
     intervalMinutesMax: Number($('#marketplace-max')?.value) || 45,
   };
@@ -3137,6 +3209,25 @@ async function runMarketplaceOnce() {
   }
 }
 
+async function loadMarketplaceVillages() {
+  const btn = $('#marketplace-load-villages');
+  if (btn) btn.disabled = true;
+  setMarketplaceHint('muted', 'Reading village list…');
+
+  try {
+    const res = await fetch('/api/marketplace/villages');
+    const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Load failed (${res.status})`);
+    renderMarketplaceVillages(data.villages || []);
+    marketplaceFormDirty = true;
+    setMarketplaceHint('ok', data.message || 'Villages loaded — tick the ones to trade from, then Save.');
+  } catch (err) {
+    setMarketplaceHint('fail', err.message || 'Could not read the village list');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function runMarketplaceNow() {
   const btn = $('#marketplace-run-now');
   if (btn) btn.disabled = true;
@@ -3194,6 +3285,10 @@ $$('.marketplace-give-cb').forEach(cb => {
 $('#marketplace-scan')?.addEventListener('click', scanMarketplaceNow);
 $('#marketplace-run-now')?.addEventListener('click', runMarketplaceNow);
 $('#marketplace-accept-now')?.addEventListener('click', runMarketplaceOnce);
+$('#marketplace-load-villages')?.addEventListener('click', loadMarketplaceVillages);
+$('#marketplace-villages-all')?.addEventListener('click', () => setAllMarketplaceVillages(true));
+$('#marketplace-villages-none')?.addEventListener('click', () => setAllMarketplaceVillages(false));
+$('#marketplace-villages')?.addEventListener('change', () => { marketplaceFormDirty = true; });
 $('#proxy-add-btn')?.addEventListener('click', addProxyFromInput);
 $('#proxy-add-input')?.addEventListener('keydown', ev => {
   if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {

@@ -18,6 +18,7 @@ const {
   randomNextRunAt,
 } = require('./marketplaceState');
 const { marketplaceSettings } = require('./marketplaceConfig');
+const { switchToVillage, loadVillages, currentVillageDid } = require('./villages');
 
 const TAG = 'marketplace';
 
@@ -361,9 +362,13 @@ function offerMatches(offer, settings, context = {}) {
   if (!offer.wantResource && settings.giveResources.length < 4) return false;
 
   // An offer needing more merchants than we have free cannot be sent.
-  const free = Number(context.merchantsAvailable);
-  const needed = Number(offer.merchants);
-  if (Number.isFinite(free) && Number.isFinite(needed) && needed > free) return false;
+  // Guard on null explicitly: Number(null) is 0, which is finite, so an
+  // unreadable merchant count would otherwise reject every offer silently.
+  if (context.merchantsAvailable != null) {
+    const free = Number(context.merchantsAvailable);
+    const needed = Number(offer.merchants);
+    if (Number.isFinite(free) && Number.isFinite(needed) && needed > free) return false;
+  }
   return true;
 }
 
@@ -485,40 +490,93 @@ async function scanMarketplaceOffers(page, options = {}) {
  * One full cycle: scan, then accept matching offers (unless dry run).
  * Writes marketplace state and returns a GUI-shaped result.
  */
-async function runMarketplaceOffers(page, options = {}) {
+/**
+ * Read-only preview across the selected villages (or the current one when none
+ * are selected). Accepts nothing.
+ */
+async function scanMarketplaceAcrossVillages(page, options = {}) {
   const settings = options.settings || marketplaceSettings();
-  const dryRun = options.dryRun !== undefined ? !!options.dryRun : settings.dryRun;
-  const now = new Date();
-  const nextAt = randomNextRunAt(settings.intervalMinutesMin, settings.intervalMinutesMax);
+  const targets = settings.activeVillages || [];
 
-  const finish = (extra = {}) => {
-    writeMarketplaceState({
-      lastRunAt: now.toISOString(),
-      nextRunAt: nextAt.toISOString(),
-      lastScanned: extra.scanned ?? 0,
-      lastMatched: extra.matched ?? 0,
-      lastAccepted: extra.accepted ?? 0,
-      lastOffers: (extra.offers || []).slice(0, 10),
-      lastMessage: extra.message || null,
-      intervalMinutesMin: settings.intervalMinutesMin,
-      intervalMinutesMax: settings.intervalMinutesMax,
+  if (!targets.length) {
+    const one = await scanMarketplaceOffers(page, { settings });
+    return { ...one, villages: [], villagesRun: 0 };
+  }
+
+  const startedAt = await currentVillageDid(page).catch(() => null);
+  const perVillage = [];
+  const offers = [];
+  const matched = [];
+
+  for (const village of targets) {
+    const label = village.name || `village ${village.did}`;
+    const switched = await switchToVillage(page, village.did);
+    if (!switched.ok) {
+      perVillage.push({ did: village.did, name: village.name, ok: false, message: switched.message });
+      continue;
+    }
+    const scan = await scanMarketplaceOffers(page, { settings });
+    perVillage.push({
+      did: village.did,
+      name: village.name,
+      ok: scan.ok,
+      message: scan.message,
+      scanned: scan.offers.length,
+      matched: scan.matched.length,
+      merchantsAvailable: scan.merchantsAvailable,
+      pagesTotal: scan.pagesTotal,
+      sorted: scan.sorted,
     });
-    return {
-      ok: extra.ok !== false,
-      status: extra.status || 'done',
-      message: extra.message || '',
-      dryRun,
-      scanned: extra.scanned ?? 0,
-      matched: extra.matched ?? 0,
-      accepted: extra.accepted ?? 0,
-      offers: extra.offers || [],
-      acceptedOffers: extra.acceptedOffers || [],
-      merchantsAvailable: extra.merchantsAvailable ?? null,
-      pagesTotal: extra.pagesTotal ?? null,
-      sorted: extra.sorted ?? false,
-      nextRunAt: nextAt.toISOString(),
-    };
+    offers.push(...scan.offers.map(o => ({ ...o, village: label })));
+    matched.push(...scan.matched.map(o => ({ ...o, village: label })));
+  }
+
+  if (startedAt && startedAt !== (await currentVillageDid(page).catch(() => null))) {
+    await switchToVillage(page, startedAt).catch(() => {});
+  }
+
+  const reached = perVillage.filter(v => v.ok !== false);
+  const message = reached.length
+    ? perVillage
+      .map(v => (v.ok === false
+        ? `${v.name || v.did}: ${v.message}`
+        : `${v.name || v.did}: ${v.matched}/${v.scanned} match(es)`))
+      .join(' · ')
+    : 'No selected village could be reached';
+
+  return {
+    ok: reached.length > 0,
+    message,
+    offers,
+    matched,
+    villages: perVillage,
+    villagesRun: perVillage.length,
+    merchantsAvailable: null,
+    pagesTotal: null,
+    sorted: perVillage.every(v => v.sorted),
   };
+}
+
+/**
+ * One marketplace cycle in whichever village is currently active.
+ * Pure with respect to state: the caller decides what to persist.
+ * @returns {Promise<object>} the same shape runMarketplaceOffers returns, minus nextRunAt
+ */
+async function runMarketplaceCycleHere(page, settings, dryRun) {
+  const finish = (extra = {}) => ({
+    ok: extra.ok !== false,
+    status: extra.status || 'done',
+    message: extra.message || '',
+    dryRun,
+    scanned: extra.scanned ?? 0,
+    matched: extra.matched ?? 0,
+    accepted: extra.accepted ?? 0,
+    offers: extra.offers || [],
+    acceptedOffers: extra.acceptedOffers || [],
+    merchantsAvailable: extra.merchantsAvailable ?? null,
+    pagesTotal: extra.pagesTotal ?? null,
+    sorted: extra.sorted ?? false,
+  });
 
   const scan = await scanMarketplaceOffers(page, { settings });
   const scanContext = {
@@ -624,6 +682,138 @@ async function runMarketplaceOffers(page, options = {}) {
   });
 }
 
+/**
+ * One full run: a cycle in every village selected under `marketplace.villages`,
+ * or in whatever village is active when none are selected.
+ *
+ * Each village has its own marketplace and its own merchants, so a village is a
+ * complete cycle of its own — switch, sort, scan, accept — and the results are
+ * summed. One village failing does not stop the rest.
+ */
+async function runMarketplaceOffers(page, options = {}) {
+  const settings = options.settings || marketplaceSettings();
+  const dryRun = options.dryRun !== undefined ? !!options.dryRun : settings.dryRun;
+  const now = new Date();
+  const nextAt = randomNextRunAt(settings.intervalMinutesMin, settings.intervalMinutesMax);
+
+  const persist = result => {
+    writeMarketplaceState({
+      lastRunAt: now.toISOString(),
+      nextRunAt: nextAt.toISOString(),
+      lastScanned: result.scanned ?? 0,
+      lastMatched: result.matched ?? 0,
+      lastAccepted: result.accepted ?? 0,
+      lastOffers: (result.offers || []).slice(0, 10),
+      lastMessage: result.message || null,
+      lastVillages: (result.villages || []).map(v => ({
+        did: v.did,
+        name: v.name,
+        status: v.status,
+        scanned: v.scanned,
+        matched: v.matched,
+        accepted: v.accepted,
+        message: v.message,
+      })),
+      intervalMinutesMin: settings.intervalMinutesMin,
+      intervalMinutesMax: settings.intervalMinutesMax,
+    });
+    return { ...result, nextRunAt: nextAt.toISOString() };
+  };
+
+  const targets = settings.activeVillages || [];
+
+  // No selection: behave as before and trade wherever the browser already is.
+  if (!targets.length) {
+    const single = await runMarketplaceCycleHere(page, settings, dryRun);
+    return persist({ ...single, villages: [], villagesRun: 0 });
+  }
+
+  const startedAt = await currentVillageDid(page).catch(() => null);
+  const results = [];
+
+  for (const village of targets) {
+    const label = village.name || `village ${village.did}`;
+    const switched = await switchToVillage(page, village.did);
+    if (!switched.ok) {
+      log.warn(TAG, `${label}: ${switched.message}`);
+      results.push({
+        did: village.did,
+        name: village.name,
+        ok: false,
+        status: 'failed',
+        message: switched.message,
+        scanned: 0,
+        matched: 0,
+        accepted: 0,
+        offers: [],
+        acceptedOffers: [],
+      });
+      continue;
+    }
+
+    log.info(TAG, `Marketplace cycle in ${label}`);
+    let cycle;
+    try {
+      cycle = await runMarketplaceCycleHere(page, settings, dryRun);
+    } catch (err) {
+      log.error(TAG, `${label}: cycle failed — ${err.message}`);
+      cycle = {
+        ok: false, status: 'failed', message: err.message,
+        scanned: 0, matched: 0, accepted: 0, offers: [], acceptedOffers: [],
+      };
+    }
+    results.push({ did: village.did, name: village.name, ...cycle });
+  }
+
+  // Leave the browser where it started so other runners are not surprised.
+  if (startedAt && startedAt !== (await currentVillageDid(page).catch(() => null))) {
+    await switchToVillage(page, startedAt).catch(() => {});
+  }
+
+  const sum = key => results.reduce((n, r) => n + (Number(r[key]) || 0), 0);
+  const accepted = sum('accepted');
+  const matched = sum('matched');
+  const scanned = sum('scanned');
+  const acceptedOffers = results.flatMap(r => (r.acceptedOffers || [])
+    .map(o => ({ ...o, village: r.name || r.did })));
+  const offers = results.flatMap(r => (r.offers || [])
+    .map(o => ({ ...o, village: r.name || r.did })));
+  const failed = results.filter(r => r.ok === false);
+
+  const per = results
+    .map(r => `${r.name || r.did}: ${r.accepted ? `accepted ${r.accepted}` : (r.matched ? `${r.matched} match(es)` : 'no match')}`)
+    .join(' · ');
+
+  let status = 'no-match';
+  if (accepted) status = failed.length ? 'partial' : 'accepted';
+  else if (dryRun && matched) status = 'dry-run';
+  else if (failed.length === results.length) status = 'failed';
+  else if (failed.length) status = 'partial';
+
+  const headline = dryRun && matched
+    ? `Dry run across ${results.length} village(s) — ${matched} match(es): ${per}`
+    : `${results.length} village(s) — ${accepted} accepted, ${matched} match(es): ${per}`;
+
+  log.info(TAG, headline);
+
+  return persist({
+    ok: failed.length < results.length,
+    status,
+    message: headline,
+    dryRun,
+    scanned,
+    matched,
+    accepted,
+    offers,
+    acceptedOffers,
+    villages: results,
+    villagesRun: results.length,
+    merchantsAvailable: null,
+    pagesTotal: null,
+    sorted: results.every(r => r.sorted),
+  });
+}
+
 module.exports = {
   ...require('./marketplaceConfig'),
   openMarketplaceOffersPage,
@@ -632,6 +822,8 @@ module.exports = {
   sortOffersByRatioDesc,
   effectiveRatio,
   scanMarketplaceOffers,
+  scanMarketplaceAcrossVillages,
+  runMarketplaceCycleHere,
   runMarketplaceOffers,
   offerMatches,
   describeOffer,
