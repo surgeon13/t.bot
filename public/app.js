@@ -190,7 +190,6 @@ let dailyScheduleProxyCount = 0;
 /** @type {string[]} */
 let dailyScheduleProxyServers = [];
 let dailyScheduleStatusCache = null;
-let lastDailyNowScrollKey = '';
 let farmListFormDirty = false;
 let marketplaceFormDirty = false;
 let accountAutoRefreshTimer = null;
@@ -659,15 +658,31 @@ function renderDailyScheduleGrid(hours) {
     proxySel.disabled = proxyCount === 0;
     proxySel.addEventListener('change', () => { dailyScheduleFormDirty = true; });
 
-    cell.append(
-      label,
+    const halves = document.createElement('div');
+    halves.className = 'daily-hour-halves';
+    halves.append(
       mkHalf('daily-half-0', ':00', row.half0),
       mkHalf('daily-half-30', ':30', row.half30),
-      proxySel,
     );
+
+    cell.append(label, halves);
+    // With no proxies configured the select is permanently disabled and says
+    // nothing, so leave it out and keep the grid a row shorter. dailyHourFromDom
+    // already reads a missing select as "no proxy".
+    if (proxyCount > 0) cell.append(proxySel);
     frag.append(cell);
   }
   grid.append(frag);
+
+  // The per-hour proxy selects only exist when a pool is configured, so the
+  // legend should not promise them otherwise.
+  const legend = $('#daily-schedule-legend');
+  if (legend) {
+    legend.textContent = proxyCount > 0
+      ? 'Local time · 00–23 · :00/:30 toggles · proxy Off=direct, P1–Pn=pool entry for that hour'
+      : 'Local time · 00–23 · :00/:30 toggles · add proxies in the Proxy panel for per-hour routing';
+  }
+
   updateDailyScheduleProxyToggleLabel();
   applyDailyScheduleNowHighlight();
 }
@@ -723,12 +738,6 @@ function applyDailyScheduleNowHighlight(st = dailyScheduleStatusCache) {
   const halfInput = cell.querySelector(half === 0 ? '.daily-half-0' : '.daily-half-30');
   const halfToggle = halfInput?.closest('.daily-hour-toggle');
   if (halfToggle) halfToggle.classList.add('now-half');
-
-  const scrollKey = `${hour}:${half}`;
-  if (scrollKey !== lastDailyNowScrollKey) {
-    lastDailyNowScrollKey = scrollKey;
-    cell.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-  }
 }
 
 function paintDailyScheduleStatus(st) {

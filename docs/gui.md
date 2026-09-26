@@ -143,13 +143,15 @@ Pauses bonus and farm schedulers only — browser may stay logged in. Manual act
 
 ### Daily schedule
 
-Full-width panel below the scheduler row. **24-column grid** (local hours 00–23):
+Full-width panel below the scheduler row. All 24 local hours (00–23) are shown at
+once as a wrapped grid — 12 columns × 2 rows on a wide window, 8×3, 6×4, and 4×6
+on a phone — so the whole day is visible without scrolling sideways:
 
 | Control | Meaning |
 |---------|---------|
 | Master **ON** | Only run schedulers in enabled half-hour slots |
 | Per-hour **:00** / **:30** | Toggle active half-hours |
-| Per-hour **Off / P1 / P2** | Proxy for that hour when the slot is active (**Off** = direct, **P1/P2** = pool index) |
+| Per-hour **Off / P1 / P2** | Proxy for that hour when the slot is active (**Off** = direct, **P1/P2** = pool index). Only shown when a proxy pool is configured — with no pool the dropdown is omitted and the hour runs direct. |
 | **Save** | `PUT /api/config/daily-schedule` |
 
 Outside enabled slots, schedulers wait and the GUI **closes the browser**. Proxy switches automatically when the hour or proxy choice changes. **Run now** does not bypass off-hours. The **current local hour** is highlighted in the grid (theme-aware colors).

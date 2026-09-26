@@ -23,6 +23,16 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 - **Lifetime total** — `marketplaceAccepts` in `data/totals-state.json`, shown as
   **Offers** on the dashboard.
 
+### Changed
+
+- **Daily schedule fits in one window** — the 24 hours were a single 1500px-wide
+  strip that had to be scrolled sideways; they are now a wrapped grid (12×2 wide,
+  8×3, 6×4, down to 4×6 on a phone) with the two half-hour toggles side by side.
+  The per-hour proxy dropdown is left out entirely when no proxy pool is
+  configured, which it could never have been used for, taking the grid from
+  134px to 92px tall. The current hour no longer scrolls itself into view: with
+  nothing to scroll horizontally that only dragged the whole page every half hour.
+
 ### Fixed
 
 - **Linux install** — `scripts/install-system-deps.sh` resolves Chromium library names
