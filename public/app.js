@@ -2906,9 +2906,15 @@ function renderMarketplaceOffers(offers) {
     row.className = 'marketplace-offer';
     row.setAttribute('role', 'listitem');
 
+    const shown = Number.isFinite(offer.computedRatio) && offer.computedRatio > 0
+      ? offer.computedRatio
+      : offer.ratio;
     const ratio = document.createElement('span');
     ratio.className = 'marketplace-offer-ratio';
-    ratio.textContent = Number.isFinite(offer.ratio) ? `×${offer.ratio}` : '×?';
+    ratio.textContent = Number.isFinite(shown) ? `×${Number(shown.toFixed(2))}` : '×?';
+    ratio.title = Number.isFinite(offer.ratio) && Number.isFinite(offer.computedRatio)
+      ? `Game shows ×${offer.ratio} (rounded to 1 decimal); the amounts give ×${offer.computedRatio.toFixed(3)}`
+      : 'Ratio read from the offers table';
     row.appendChild(ratio);
 
     const trade = document.createElement('span');
@@ -2916,16 +2922,24 @@ function renderMarketplaceOffers(offers) {
     trade.textContent = describeMarketplaceOffer(offer);
     row.appendChild(trade);
 
-    // A computed ratio that disagrees with the column means the parser read the
-    // wrong cells — surface it rather than silently trusting the number.
+    // The column is rounded to 1 decimal, so a gap up to 0.05 is just rounding.
+    // Anything wider means the parser read the wrong cells — surface it.
     if (Number.isFinite(offer.computedRatio)
       && Number.isFinite(offer.ratio)
-      && Math.abs(offer.computedRatio - offer.ratio) > 0.05) {
+      && Math.abs(offer.computedRatio - offer.ratio) > 0.12) {
       const warn = document.createElement('span');
       warn.className = 'marketplace-offer-warn';
-      warn.textContent = `amounts give ×${offer.computedRatio.toFixed(2)}`;
-      warn.title = 'The ratio column and the offered/requested amounts disagree — check the column before turning dry run off.';
+      warn.textContent = `column says ×${offer.ratio}`;
+      warn.title = 'The ratio column and the offered/requested amounts disagree by more than rounding — check the table before turning dry run off.';
       row.appendChild(warn);
+    }
+
+    if (offer.merchants) {
+      const merch = document.createElement('span');
+      merch.className = 'marketplace-offer-player muted';
+      merch.textContent = `${offer.merchants} merch`;
+      merch.title = 'Merchants this trade needs';
+      row.appendChild(merch);
     }
 
     if (offer.player) {

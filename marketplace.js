@@ -40,11 +40,13 @@ const OFFER_TAB_PATHS = [
 ];
 
 const ACCEPT_SELECTORS = [
+  'td.accept button',
   'button.accept',
   'a.accept',
   '.acceptOffer',
   'button[value="accept"]',
   'a[href*="accept"]',
+  'button.textButtonV2',
   'button.textButtonV1',
   'button[type="submit"]',
   'button',
@@ -156,9 +158,16 @@ async function readMarketplaceOffersOnPage(page) {
       return Number.isFinite(n) ? n : null;
     };
 
+    // Legends names wood "lumber" and suffixes icon classes with a size,
+    // e.g. <i class="crop_small"> / <i class="lumber_small">.
     const RESOURCE_BY_CLASS = {
       r1: 'wood', r2: 'clay', r3: 'iron', r4: 'crop',
-      wood: 'wood', clay: 'clay', iron: 'iron', crop: 'crop',
+      lumber: 'wood', wood: 'wood', clay: 'clay', iron: 'iron', crop: 'crop',
+    };
+
+    const resourceFromClass = cls => {
+      const key = String(cls || '').toLowerCase().replace(/_(small|medium|large|big)$/, '');
+      return RESOURCE_BY_CLASS[key] || null;
     };
 
     /** Read the resource type from icon classes anywhere inside a cell. */
@@ -168,8 +177,8 @@ async function readMarketplaceOffersOnPage(page) {
       for (const node of nodes) {
         const classes = String(node.getAttribute?.('class') || '').split(/\s+/);
         for (const cls of classes) {
-          const key = cls.toLowerCase();
-          if (RESOURCE_BY_CLASS[key]) return RESOURCE_BY_CLASS[key];
+          const found = resourceFromClass(cls);
+          if (found) return found;
         }
         const href = node.getAttribute?.('xlink:href') || node.getAttribute?.('href') || '';
         const m = /#?(r[1-4])\b/i.exec(href);
@@ -241,12 +250,120 @@ async function readMarketplaceOffersOnPage(page) {
   }, ROW_ATTR);
 }
 
-/** @param {object} offer @param {{minRatio:number,giveResources:string[]}} settings */
-function offerMatches(offer, settings) {
-  if (!Number.isFinite(offer.ratio) || offer.ratio < settings.minRatio) return false;
+/**
+ * Free merchants and how many pages of offers there are.
+ * @returns {Promise<{merchantsAvailable:number|null,merchantsTotal:number|null,pagesTotal:number|null}>}
+ */
+async function readMarketplaceInfoOnPage(page) {
+  return page.evaluate(() => {
+    const clean = s => String(s || '').replace(/[\u200e\u200f\u202a-\u202e]/g, '').trim();
+
+    let merchantsAvailable = null;
+    let merchantsTotal = null;
+    const avail = document.querySelector('.merchantsInformation .available .value');
+    if (avail) {
+      // Rendered as "11/14" once the bidi wrappers are stripped.
+      const m = /(\d[\d.,\s]*)\s*\/\s*(\d[\d.,\s]*)/.exec(clean(avail.textContent));
+      if (m) {
+        merchantsAvailable = Number(m[1].replace(/[^\d]/g, ''));
+        merchantsTotal = Number(m[2].replace(/[^\d]/g, ''));
+      }
+    }
+
+    let pagesTotal = null;
+    const pages = Array.from(document.querySelectorAll('.pagination .pageIndex'))
+      .map(el => Number(clean(el.textContent)))
+      .filter(Number.isFinite);
+    if (pages.length) pagesTotal = Math.max(...pages);
+
+    return { merchantsAvailable, merchantsTotal, pagesTotal };
+  });
+}
+
+/** Ratios currently in the table, top row first. */
+async function readRatioColumnOnPage(page) {
+  return page.evaluate(() => Array.from(document.querySelectorAll('td.ratio'))
+    .map(td => {
+      const t = String(td.textContent || '')
+        .replace(/[\u200e\u200f\u202a-\u202e]/g, '')
+        .replace(/[^\d.,]/g, '')
+        .replace(',', '.');
+      const n = Number(t);
+      return Number.isFinite(n) && t !== '' ? n : null;
+    })
+    .filter(n => n != null));
+}
+
+function isDescending(values) {
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] > values[i - 1] + 1e-9) return false;
+  }
+  return true;
+}
+
+/**
+ * Sort the table by the ratio column, best first, so the offers worth taking sit
+ * on page one. The table spans many pages, and without this a good offer three
+ * pages deep is never seen.
+ *
+ * The header toggles, so click and check rather than assuming a direction.
+ * Best effort: a failure just leaves the natural order.
+ * @returns {Promise<{sorted:boolean}>}
+ */
+async function sortOffersByRatioDesc(page) {
+  const header = page.locator('td.ratio.sortable').first();
+  if (!(await header.count().catch(() => 0))) return { sorted: false };
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await header.click({ timeout: 8_000 });
+    } catch (err) {
+      log.warn(TAG, `Ratio sort click failed: ${err.message}`);
+      return { sorted: false };
+    }
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await pause(700);
+
+    const ratios = await readRatioColumnOnPage(page).catch(() => []);
+    if (ratios.length < 2) return { sorted: ratios.length === 1 };
+    if (isDescending(ratios)) {
+      log.info(TAG, `Sorted offers by ratio, best first (top ${ratios[0]})`);
+      return { sorted: true };
+    }
+  }
+
+  log.warn(TAG, 'Could not sort offers by ratio — reading the page in its natural order');
+  return { sorted: false };
+}
+
+/**
+ * The ratio to judge an offer by.
+ *
+ * Travian rounds the ratio column to one decimal and rounds up, so a real 1.25
+ * prints as 1.3. Matching on the printed value would accept trades below the
+ * threshold, so the amounts win whenever both parsed.
+ */
+function effectiveRatio(offer) {
+  if (Number.isFinite(offer.computedRatio) && offer.computedRatio > 0) return offer.computedRatio;
+  return Number.isFinite(offer.ratio) ? offer.ratio : NaN;
+}
+
+/**
+ * @param {object} offer
+ * @param {{minRatio:number,giveResources:string[]}} settings
+ * @param {{merchantsAvailable?:number}} [context] free merchants right now
+ */
+function offerMatches(offer, settings, context = {}) {
+  const ratio = effectiveRatio(offer);
+  if (!Number.isFinite(ratio) || ratio < settings.minRatio) return false;
   // Unknown requested resource: only accept when every resource is allowed anyway.
   if (offer.wantResource && !settings.giveResources.includes(offer.wantResource)) return false;
   if (!offer.wantResource && settings.giveResources.length < 4) return false;
+
+  // An offer needing more merchants than we have free cannot be sent.
+  const free = Number(context.merchantsAvailable);
+  const needed = Number(offer.merchants);
+  if (Number.isFinite(free) && Number.isFinite(needed) && needed > free) return false;
   return true;
 }
 
@@ -257,7 +374,9 @@ function describeOffer(offer) {
   const give = offer.wantAmount != null
     ? `${offer.wantAmount} ${offer.wantResource || '?'}`
     : (offer.wantResource || '?');
-  return `${get} for ${give} (ratio ${offer.ratio})`;
+  const ratio = effectiveRatio(offer);
+  const shown = Number.isFinite(ratio) ? Number(ratio.toFixed(3)) : '?';
+  return `${get} for ${give} (ratio ${shown})`;
 }
 
 /** Click accept on one tagged row and clear any confirmation dialog. */
@@ -304,19 +423,61 @@ async function acceptOfferRow(page, index) {
 async function scanMarketplaceOffers(page, options = {}) {
   const settings = options.settings || marketplaceSettings();
   if (!(await openMarketplaceOffersPage(page))) {
-    return { ok: false, message: 'Marketplace offers page not reachable', offers: [], matched: [] };
+    return {
+      ok: false,
+      message: 'Marketplace offers page not reachable',
+      offers: [],
+      matched: [],
+      merchantsAvailable: null,
+      pagesTotal: null,
+      sorted: false,
+    };
   }
 
+  const { sorted } = options.skipSort ? { sorted: false } : await sortOffersByRatioDesc(page);
+  const info = await readMarketplaceInfoOnPage(page).catch(() => ({
+    merchantsAvailable: null, merchantsTotal: null, pagesTotal: null,
+  }));
+
+  // Tag rows only after sorting — a re-sort renumbers them.
   const offers = await readMarketplaceOffersOnPage(page);
-  const matched = offers.filter(o => offerMatches(o, settings));
-  log.info(TAG, `Scanned ${offers.length} offer(s); ${matched.length} at ratio ≥ ${settings.minRatio}`);
+  const context = { merchantsAvailable: info.merchantsAvailable };
+  const matched = offers.filter(o => offerMatches(o, settings, context));
+
+  const best = offers.reduce((acc, o) => {
+    const r = effectiveRatio(o);
+    return Number.isFinite(r) && r > acc ? r : acc;
+  }, 0);
+
+  log.info(
+    TAG,
+    `Scanned ${offers.length} offer(s); ${matched.length} at ratio ≥ ${settings.minRatio}`
+    + (best ? ` (best on page ${Number(best.toFixed(3))})` : '')
+    + (info.merchantsAvailable != null ? `; ${info.merchantsAvailable} merchant(s) free` : ''),
+  );
+
+  const parts = [];
+  if (!offers.length) {
+    parts.push('No offers on the marketplace page');
+  } else {
+    parts.push(`${offers.length} offer(s) read, ${matched.length} at ratio ≥ ${settings.minRatio}`);
+    if (best) parts.push(`best on page ${Number(best.toFixed(3))}`);
+    if (info.merchantsAvailable != null) parts.push(`${info.merchantsAvailable} merchant(s) free`);
+    // Without a working sort the good offers may simply be on another page.
+    if (!sorted && info.pagesTotal > 1) {
+      parts.push(`only this page of ${info.pagesTotal} was read (ratio sort unavailable)`);
+    }
+  }
+
   return {
     ok: true,
-    message: offers.length
-      ? `${offers.length} offer(s) on page, ${matched.length} at ratio ≥ ${settings.minRatio}`
-      : 'No offers on the marketplace page',
+    message: parts.join(' · '),
     offers,
     matched,
+    merchantsAvailable: info.merchantsAvailable,
+    merchantsTotal: info.merchantsTotal,
+    pagesTotal: info.pagesTotal,
+    sorted,
   };
 }
 
@@ -352,13 +513,21 @@ async function runMarketplaceOffers(page, options = {}) {
       accepted: extra.accepted ?? 0,
       offers: extra.offers || [],
       acceptedOffers: extra.acceptedOffers || [],
+      merchantsAvailable: extra.merchantsAvailable ?? null,
+      pagesTotal: extra.pagesTotal ?? null,
+      sorted: extra.sorted ?? false,
       nextRunAt: nextAt.toISOString(),
     };
   };
 
   const scan = await scanMarketplaceOffers(page, { settings });
+  const scanContext = {
+    merchantsAvailable: scan.merchantsAvailable,
+    pagesTotal: scan.pagesTotal,
+    sorted: scan.sorted,
+  };
   if (!scan.ok) {
-    return finish({ ok: false, status: 'failed', message: scan.message });
+    return finish({ ok: false, status: 'failed', message: scan.message, ...scanContext });
   }
 
   if (!scan.matched.length) {
@@ -369,6 +538,7 @@ async function runMarketplaceOffers(page, options = {}) {
         : 'No offers on the marketplace page',
       scanned: scan.offers.length,
       offers: scan.matched,
+      ...scanContext,
     });
   }
 
@@ -381,6 +551,7 @@ async function runMarketplaceOffers(page, options = {}) {
       scanned: scan.offers.length,
       matched: scan.matched.length,
       offers: scan.matched,
+      ...scanContext,
     });
   }
 
@@ -404,10 +575,14 @@ async function runMarketplaceOffers(page, options = {}) {
     if (remaining <= 0) break;
     await pause(MS_BETWEEN_ACCEPTS);
 
-    // Accepting reloads the table and renumbers rows, so re-read before the next one.
+    // Accepting reloads the table and renumbers rows, so re-read before the next
+    // one. Merchants are re-read too: the last accept just spent some.
     if (!(await openMarketplaceOffersPage(page))) break;
+    const freshInfo = await readMarketplaceInfoOnPage(page).catch(() => ({ merchantsAvailable: null }));
     const fresh = await readMarketplaceOffersOnPage(page);
-    const stillMatching = fresh.filter(o => offerMatches(o, settings));
+    const stillMatching = fresh.filter(
+      o => offerMatches(o, settings, { merchantsAvailable: freshInfo.merchantsAvailable }),
+    );
     if (!result.ok) {
       // Drop the row we just failed on so a bad row cannot loop forever.
       const failedKey = describeOffer(offer);
@@ -429,6 +604,7 @@ async function runMarketplaceOffers(page, options = {}) {
       scanned,
       matched: matchedCount,
       offers: scan.matched,
+      ...scanContext,
     });
   }
 
@@ -444,6 +620,7 @@ async function runMarketplaceOffers(page, options = {}) {
     accepted: acceptedOffers.length,
     offers: scan.matched,
     acceptedOffers,
+    ...scanContext,
   });
 }
 
@@ -451,6 +628,9 @@ module.exports = {
   ...require('./marketplaceConfig'),
   openMarketplaceOffersPage,
   readMarketplaceOffersOnPage,
+  readMarketplaceInfoOnPage,
+  sortOffersByRatioDesc,
+  effectiveRatio,
   scanMarketplaceOffers,
   runMarketplaceOffers,
   offerMatches,
