@@ -25,49 +25,72 @@ function serverBase(cfg = loadConfig()) {
  */
 async function readVillagesOnPage(page) {
   return page.evaluate(() => {
-    const norm = s => String(s || '')
-      .replace(/[‎‏‪-‮]/g, '')
-      .trim()
-      .replace(/\s+/g, ' ');
+    const stripBidi = s => String(s || '').replace(/[\u200e\u200f\u202a-\u202e]/g, '');
+    const norm = s => stripBidi(s).trim().replace(/\s+/g, ' ');
 
+    /** Coordinates print as "(55" and "−26)" — with U+2212, not a hyphen. */
     const toInt = s => {
-      const n = Number(String(s || '').replace(/[^\d-]/g, ''));
-      return Number.isFinite(n) ? n : null;
+      const t = stripBidi(s)
+        .replace(/[\u2212\u2013\u2014\u2012]/g, '-')
+        .replace(/[^\d-]/g, '');
+      const m = /-?\d+/.exec(t);
+      return m ? Number(m[0]) : null;
     };
 
     const out = [];
     const seen = new Set();
 
-    for (const link of Array.from(document.querySelectorAll('a[href*="newdid="]'))) {
-      const href = link.getAttribute('href') || '';
-      const m = /[?&]newdid=(\d+)/.exec(href);
-      if (!m) continue;
-      const did = m[1];
-      if (seen.has(did)) continue;
+    const add = (did, entry, extraClasses = '') => {
+      const id = String(did || '').trim();
+      if (!/^\d+$/.test(id) || seen.has(id)) return;
 
-      const entry = link.closest('[data-did], .dropContainer, li, div') || link;
-
-      const nameEl = link.querySelector('.name') || entry.querySelector('.name');
-      const name = norm(nameEl ? nameEl.textContent : link.textContent);
-      if (!name) continue;
+      const nameEl = entry.querySelector('.name');
+      const name = norm(nameEl ? nameEl.textContent : entry.textContent);
+      if (!name) return;
 
       const xEl = entry.querySelector('.coordinateX');
       const yEl = entry.querySelector('.coordinateY');
 
-      // Class lives on the link on some skins, on the wrapper on others.
-      const classes = `${link.className || ''} ${entry.className || ''}`.toLowerCase();
-      const capital = /capital/.test(classes)
-        || !!entry.querySelector('[class*="capital" i]');
+      // "active" sits on the entry on some skins and on the inner link on others.
+      const classes = `${entry.className || ''} ${extraClasses} `
+        + `${entry.querySelector('a')?.className || ''}`;
+      const lc = classes.toLowerCase();
 
-      seen.add(did);
+      seen.add(id);
       out.push({
-        did,
+        did: id,
         name,
         x: xEl ? toInt(xEl.textContent) : null,
         y: yEl ? toInt(yEl.textContent) : null,
-        active: /(^|\s)active(\s|$)/.test(classes),
-        capital,
+        active: /(^|\s)active(\s|$)/.test(lc),
+        // Not every server marks the capital in this list; absent just means no star.
+        capital: /capital/.test(lc) || !!entry.querySelector('[class*="capital" i]'),
       });
+    };
+
+    // Primary: the Legends village list. Entries carry the village id in
+    // data-did and navigate by script, so their links are plain "#".
+    for (const entry of Array.from(document.querySelectorAll(
+      '.villageList .listEntry[data-did], #sidebarBoxVillagelist [data-did], .listEntry.village[data-did]',
+    ))) {
+      add(entry.getAttribute('data-did'), entry);
+    }
+
+    // Fallback: older skins that put ?newdid= straight in the href.
+    if (!out.length) {
+      for (const link of Array.from(document.querySelectorAll('a[href*="newdid="]'))) {
+        const m = /[?&]newdid=(\d+)/.exec(link.getAttribute('href') || '');
+        if (!m) continue;
+        const entry = link.closest('[data-did], .dropContainer, li, div') || link;
+        add(m[1], entry, link.className || '');
+      }
+    }
+
+    // Last resort: any element tagged with a village id at all.
+    if (!out.length) {
+      for (const el of Array.from(document.querySelectorAll('[data-did]'))) {
+        add(el.getAttribute('data-did'), el);
+      }
     }
 
     return out;
@@ -77,30 +100,48 @@ async function readVillagesOnPage(page) {
 /** The did of the village the game is currently showing, if it can be read. */
 async function currentVillageDid(page) {
   return page.evaluate(() => {
-    // The sidebar's active entry is what the game actually switched to. The URL
+    // The list entry marked active is what the game actually switched to. The URL
     // only says what was asked for — request a village that is not yours and the
-    // game keeps you where you were while `newdid` still sits in the address.
-    const active = document.querySelector(
-      '.villageList .active[href*="newdid="], #sidebarBoxVillagelist .active[href*="newdid="]',
+    // game keeps you where you were while newdid still sits in the address.
+    const activeEntry = document.querySelector(
+      '.villageList .listEntry.active[data-did], #sidebarBoxVillagelist .active[data-did], .listEntry.village.active[data-did]',
     );
-    if (active) {
-      const m = /[?&]newdid=(\d+)/.exec(active.getAttribute('href') || '');
-      if (m) return m[1];
+    if (activeEntry) {
+      const did = activeEntry.getAttribute('data-did');
+      if (/^\d+$/.test(String(did))) return String(did);
     }
 
-    const activeWrapper = document.querySelector('.villageList .active[data-did], [data-did].active');
-    if (activeWrapper) {
-      const did = activeWrapper.getAttribute('data-did');
+    // Some skins mark the inner link instead of the entry.
+    const activeLink = document.querySelector('.villageList a.active, #sidebarBoxVillagelist a.active');
+    if (activeLink) {
+      const owner = activeLink.closest('[data-did]');
+      const did = owner?.getAttribute('data-did');
       if (/^\d+$/.test(String(did))) return String(did);
+      const m = /[?&]newdid=(\d+)/.exec(activeLink.getAttribute('href') || '');
+      if (m) return m[1];
     }
 
     // Legends exposes it as a global on most pages.
     const g = window.Travian?.Game?.activeVillageId ?? window.activeVillageId;
     if (g != null && /^\d+$/.test(String(g))) return String(g);
 
+    // A village list with nothing marked active means "unknown", not "whatever
+    // the address bar says" — ?newdid= reflects what was requested, and a
+    // village that is not ours leaves it in the URL while the game ignores it.
+    if (document.querySelector('.villageList, #sidebarBoxVillagelist, .listEntry[data-did]')) {
+      return null;
+    }
+
     const fromUrl = /[?&]newdid=(\d+)/.exec(location.search);
     return fromUrl ? fromUrl[1] : null;
   }).catch(() => null);
+}
+
+/** True when the page shows a village list we could have read an answer from. */
+async function hasVillageList(page) {
+  return page.evaluate(
+    () => !!document.querySelector('.villageList, #sidebarBoxVillagelist, .listEntry[data-did]'),
+  ).catch(() => false);
 }
 
 /** Open the village list (sidebar is present on the normal game shell). */
@@ -157,10 +198,31 @@ async function switchToVillage(page, did, options = {}) {
     return { ok: false, message: `Village switch failed: ${err.message}` };
   }
 
-  const now = await currentVillageDid(page);
+  let now = await currentVillageDid(page);
+
+  // The village list navigates by script on current Legends skins (its links are
+  // plain "#"), so if the URL form did not take, click the entry itself.
+  if (now !== want) {
+    const entry = page.locator(`.listEntry[data-did="${want}"] a, [data-did="${want}"] a`).first();
+    if (await entry.count().catch(() => 0)) {
+      try {
+        await entry.click({ timeout: 8_000 });
+        await page.waitForLoadState('domcontentloaded').catch(() => {});
+        await dismissBlockingDialogs(page, { tag: TAG });
+        await pause(600);
+        now = await currentVillageDid(page);
+      } catch (err) {
+        log.warn(TAG, `Village list click failed for ${want}: ${err.message}`);
+      }
+    }
+  }
   if (now == null) {
-    // No sidebar to confirm against — treat as reachable but say so, rather than
-    // trading in a village we cannot name.
+    if (await hasVillageList(page)) {
+      // The list was readable and did not mark this village active, so the switch
+      // did not take. Trading here would use the wrong village's merchants.
+      return { ok: false, message: `Village ${want} did not become active` };
+    }
+    // No list at all (unfamiliar skin) — proceed, but say it is unverified.
     log.warn(TAG, `Could not confirm the active village after switching to ${want}`);
     return { ok: true, message: `Switched to village ${want} (unconfirmed)`, confirmed: false };
   }
@@ -174,6 +236,7 @@ async function switchToVillage(page, did, options = {}) {
 module.exports = {
   readVillagesOnPage,
   currentVillageDid,
+  hasVillageList,
   loadVillages,
   switchToVillage,
 };

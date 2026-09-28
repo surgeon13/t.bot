@@ -23,6 +23,18 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 - **Lifetime total** — `marketplaceAccepts` in `data/totals-state.json`, shown as
   **Offers** on the dashboard.
 
+### Fixed
+
+- **Marketplace village discovery** — "Load from game" found nothing on current
+  Travian Legends skins. Discovery keyed off `a[href*="newdid="]`, but the village
+  list navigates by script: its links are plain `#` and the village id is in
+  `data-did`. Entries are now read from `data-did` (with the old href kept as a
+  fallback), coordinates handle the U+2212 minus sign Travian uses, and switching
+  falls back to clicking the list entry when the URL form does not take. A switch
+  that cannot be confirmed against the list is now a failure instead of being
+  confirmed from `?newdid=` in the address bar, which only reflects what was asked
+  for.
+
 ### Changed
 
 - **Daily schedule fits in one window** — the 24 hours were a single 1500px-wide

@@ -41,8 +41,14 @@ It pauses under the same gates as the farm list runner: **work/sleep**,
 Every village has its own marketplace and its own merchants, so the runner works
 one village at a time.
 
-**Load from game** reads your village list (name, coordinates, capital marked ★).
-Tick the villages to trade from and **Save**. Most players tick just the capital.
+**Load from game** reads your village list (name, coordinates, capital marked ★
+where the server marks one — several do not, in which case no star appears).
+Tick the villages to trade from and **Save**.
+
+Switching is tried by URL (`dorf1.php?newdid=<id>`) and, if that does not take,
+by clicking the village in the list — current skins switch by script. A switch
+that cannot be confirmed against the village list is reported as a failure rather
+than traded through, so the bot never spends another village's merchants.
 
 - **Nothing ticked** — the runner trades in whichever village the browser happens
   to be showing. That is the old behaviour and stays the default.
@@ -140,8 +146,9 @@ State lives in `data/marketplace-state.json`; lifetime accepts are counted in
 | Merchants free | `.merchantsInformation .available` (e.g. `11/14`) |
 | Pages | `.pagination .pageIndex` |
 | Accept | `td.accept button` |
-| Village list | `a[href*="newdid="]` in the sidebar, with `.name` and `.coordinateX/Y` |
-| Active village | the sidebar's `.active` entry — **not** the URL, which only says what was requested |
+| Village list | `.listEntry[data-did]` in the sidebar, with `.name` and `.coordinateX/Y`. Current Legends skins navigate by script, so the entries' links are plain `#` and the village id lives in `data-did`; an older `?newdid=` href is accepted as a fallback |
+| Coordinates | `.coordinateX` / `.coordinateY`, handling the U+2212 minus sign Travian uses instead of a hyphen |
+| Active village | the list entry carrying `active` — **never** the URL. `?newdid=` says what was *requested*: ask for a village that is not yours and it stays in the address while the game ignores it |
 
 ## Limits
 
