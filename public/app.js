@@ -163,6 +163,10 @@ function paintStatus(s) {
   if (s.farmListConfig && !farmListFormDirty) fillFarmListForm(s.farmListConfig);
   if (s.marketplaceStatus) paintMarketplaceStatus(s.marketplaceStatus);
   if (s.marketplaceConfig && !marketplaceFormDirty) fillMarketplaceForm(s.marketplaceConfig);
+  if (s.trainingStatus) paintTrainingStatus(s.trainingStatus);
+  if (s.trainingConfig && !trainingFormDirty) fillTrainingForm(s.trainingConfig);
+  if (s.granaryStatus) paintGranaryStatus(s.granaryStatus);
+  if (s.granaryConfig && !granaryFormDirty) fillGranaryForm(s.granaryConfig);
 
   if (s.totals) paintLifetimeTotals(s.totals);
 
@@ -192,6 +196,8 @@ let dailyScheduleProxyServers = [];
 let dailyScheduleStatusCache = null;
 let farmListFormDirty = false;
 let marketplaceFormDirty = false;
+let trainingFormDirty = false;
+let granaryFormDirty = false;
 let accountAutoRefreshTimer = null;
 let accountAutoRefreshAttempts = 0;
 
@@ -3256,6 +3262,497 @@ async function runMarketplaceNow() {
   }
 }
 
+
+/* ----- Shared village picker (training + granary) ----- */
+
+function renderVillagePicker(containerSel, emptySel, villages) {
+  const container = $(containerSel);
+  const empty = $(emptySel);
+  if (!container) return;
+  container.textContent = '';
+
+  const list = Array.isArray(villages) ? villages : [];
+  if (!list.length) {
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  for (const v of list) {
+    const label = document.createElement('label');
+    label.className = 'proxy-check marketplace-village';
+    label.setAttribute('role', 'listitem');
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'village-pick-cb';
+    cb.checked = !!v.enabled;
+    cb.dataset.did = String(v.did);
+    cb.dataset.vname = String(v.name || '');
+    label.appendChild(cb);
+
+    const name = document.createElement('span');
+    name.textContent = v.name || `village ${v.did}`;
+    label.appendChild(name);
+
+    if (v.capital) {
+      const cap = document.createElement('span');
+      cap.className = 'marketplace-village-capital';
+      cap.textContent = '★';
+      cap.title = 'Capital';
+      label.appendChild(cap);
+    }
+    if (v.x != null && v.y != null) {
+      const co = document.createElement('span');
+      co.className = 'marketplace-village-coords';
+      co.textContent = `(${v.x}|${v.y})`;
+      label.appendChild(co);
+    }
+    container.appendChild(label);
+  }
+}
+
+function collectVillagePicker(containerSel) {
+  return $$(`${containerSel} .village-pick-cb`).map(cb => ({
+    did: cb.dataset.did,
+    name: cb.dataset.vname || '',
+    enabled: cb.checked,
+  }));
+}
+
+/** Read the village list from the game and merge it over what is ticked now. */
+async function loadVillagesInto(containerSel, emptySel, hintFn) {
+  hintFn('muted', 'Reading village list…');
+  try {
+    const res = await fetch('/api/villages');
+    const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Load failed (${res.status})`);
+
+    // Keep ticks the user already made; a village seen for the first time
+    // starts unticked so loading can never widen where a runner acts.
+    const current = new Map(collectVillagePicker(containerSel).map(v => [v.did, v.enabled]));
+    const merged = (data.villages || []).map(v => ({
+      ...v,
+      enabled: current.get(String(v.did)) ?? false,
+    }));
+    renderVillagePicker(containerSel, emptySel, merged);
+    hintFn('ok', `Found ${merged.length} village(s) — tick the ones to use, then Save.`);
+    return true;
+  } catch (err) {
+    hintFn('fail', err.message || 'Could not read the village list');
+    return false;
+  }
+}
+
+function paintNextApprox(sel, st, noun) {
+  const el = $(sel);
+  if (!el) return;
+  const resumeTs = st?.scheduleResumeAt ? new Date(st.scheduleResumeAt).getTime() : NaN;
+  if (st?.pauseReason === 'daily-schedule' && Number.isFinite(resumeTs)) {
+    const mins = Math.max(0, Math.round((resumeTs - Date.now()) / 60000));
+    el.textContent = mins <= 0
+      ? `Next ${noun} approx: when schedule slot opens`
+      : `Next ${noun} approx: ~${mins} min (schedule slot)`;
+    return;
+  }
+  if (st?.pauseReason === 'work-sleep') {
+    el.textContent = `Next ${noun} approx: after work/sleep resumes`;
+    return;
+  }
+  const ts = st?.nextRunAt ? new Date(st.nextRunAt).getTime() : NaN;
+  if (!Number.isFinite(ts)) {
+    el.textContent = `Next ${noun} approx: —`;
+    return;
+  }
+  const mins = Math.max(0, Math.round((ts - Date.now()) / 60000));
+  el.textContent = mins <= 0 ? `Next ${noun} approx: now` : `Next ${noun} approx: ~${mins} min`;
+}
+
+/* ----- Troop training ----- */
+
+function setTrainingHint(kind, text) {
+  const hint = $('#training-save-hint');
+  if (!hint) return;
+  hint.className = `marketplace-hint ${kind}`;
+  hint.textContent = text;
+}
+
+function renderTrainingBuildings(buildings) {
+  const container = $('#training-buildings');
+  if (!container) return;
+  container.textContent = '';
+
+  for (const b of (buildings || [])) {
+    const row = document.createElement('div');
+    row.className = 'training-building';
+    row.setAttribute('role', 'listitem');
+    row.dataset.key = b.key;
+
+    const on = document.createElement('label');
+    on.className = 'proxy-check training-building-on';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'training-building-cb';
+    cb.checked = !!b.enabled;
+    const nm = document.createElement('span');
+    nm.textContent = b.label;
+    on.append(cb, nm);
+    row.appendChild(on);
+
+    const troop = document.createElement('input');
+    troop.type = 'text';
+    troop.className = 'proxy-inp training-troop';
+    troop.placeholder = 'Troop name, e.g. Khopesh warrior';
+    troop.value = b.troop || '';
+    troop.title = 'Exactly as the game spells it — a partial name also matches';
+    row.appendChild(troop);
+
+    const keep = document.createElement('label');
+    keep.className = 'schedule-interval-lbl';
+    const keepTxt = document.createElement('span');
+    keepTxt.textContent = 'keep';
+    const hours = document.createElement('input');
+    hours.type = 'number';
+    hours.className = 'proxy-inp schedule-hours training-hours';
+    hours.min = '1';
+    hours.max = '72';
+    hours.step = '1';
+    hours.value = String(b.targetQueueHours ?? 8);
+    hours.title = 'Keep the queue at least this many hours deep';
+    const hTxt = document.createElement('span');
+    hTxt.textContent = 'h';
+    keep.append(keepTxt, hours, hTxt);
+    row.appendChild(keep);
+
+    const cap = document.createElement('label');
+    cap.className = 'schedule-interval-lbl';
+    const capTxt = document.createElement('span');
+    capTxt.textContent = 'max';
+    const batch = document.createElement('input');
+    batch.type = 'number';
+    batch.className = 'proxy-inp schedule-hours training-batch';
+    batch.min = '0';
+    batch.step = '1';
+    batch.value = String(b.maxPerBatch ?? 0);
+    batch.title = 'Most units to queue in one go — 0 for no cap of our own';
+    cap.append(capTxt, batch);
+    row.appendChild(cap);
+
+    const inspect = document.createElement('button');
+    inspect.type = 'button';
+    inspect.className = 'ghost proxy-btn-sm training-inspect';
+    inspect.textContent = 'Inspect';
+    inspect.title = 'Open this building and list the unit rows the bot can see';
+    row.appendChild(inspect);
+
+    container.appendChild(row);
+  }
+}
+
+function collectTrainingBuildings() {
+  return $$('#training-buildings .training-building').map(row => ({
+    key: row.dataset.key,
+    enabled: !!row.querySelector('.training-building-cb')?.checked,
+    troop: row.querySelector('.training-troop')?.value?.trim() || '',
+    targetQueueHours: Number(row.querySelector('.training-hours')?.value) || 8,
+    maxPerBatch: Number(row.querySelector('.training-batch')?.value) || 0,
+  }));
+}
+
+function fillTrainingForm(cfg) {
+  if (!cfg) return;
+  const set = (sel, v) => { const el = $(sel); if (el) el.checked = !!v; };
+  set('#training-enabled', cfg.enabled);
+  set('#training-dry-run', cfg.dryRun !== false);
+  set('#training-round-robin', cfg.roundRobin);
+  const min = $('#training-min');
+  const max = $('#training-max');
+  if (min) min.value = String(cfg.intervalMinutesMin ?? 20);
+  if (max) max.value = String(cfg.intervalMinutesMax ?? 45);
+  renderVillagePicker('#training-villages', '#training-villages-empty', cfg.villages || []);
+  renderTrainingBuildings(cfg.buildings || []);
+}
+
+function collectTrainingForm() {
+  return {
+    enabled: !!$('#training-enabled')?.checked,
+    dryRun: !!$('#training-dry-run')?.checked,
+    roundRobin: !!$('#training-round-robin')?.checked,
+    villages: collectVillagePicker('#training-villages'),
+    buildings: collectTrainingBuildings(),
+    intervalMinutesMin: Number($('#training-min')?.value) || 20,
+    intervalMinutesMax: Number($('#training-max')?.value) || 45,
+  };
+}
+
+function paintTrainingStatus(st) {
+  const dot = $('#training-dot');
+  const txt = $('#training-status-text');
+  if (!dot || !txt) return;
+
+  if (st.enabled && st.schedulerRunning) {
+    dot.className = st.dryRun ? 'marketplace-dot warn' : 'marketplace-dot on';
+    const where = st.activeVillageCount
+      ? (st.roundRobin ? `round-robin ${st.activeVillageCount}` : `${st.activeVillageCount} villages`)
+      : 'current village';
+    txt.textContent = `${st.dryRun ? 'DRY RUN · ' : ''}${st.activeBuildingCount} building(s) · ${where}`;
+  } else if (st.enabled) {
+    dot.className = 'marketplace-dot warn';
+    txt.textContent = 'Runner ON — timer not running';
+  } else {
+    dot.className = 'marketplace-dot off';
+    txt.textContent = 'Runner OFF';
+  }
+
+  const line = $('#training-next-line');
+  if (line) line.textContent = st.lastMessage || st.statusLine || '—';
+  paintNextApprox('#training-next-approx', st, 'check');
+}
+
+async function saveTrainingForm(ev) {
+  ev?.preventDefault();
+  const btn = $('#training-save');
+  if (btn) btn.disabled = true;
+  setTrainingHint('muted', 'Saving…');
+  try {
+    const res = await fetch('/api/config/training', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify(collectTrainingForm()),
+    });
+    const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Save failed (${res.status})`);
+    trainingFormDirty = false;
+    if (data.training) fillTrainingForm(data.training);
+    if (data.trainingStatus) paintTrainingStatus(data.trainingStatus);
+    setTrainingHint('ok', data.message || 'Training settings saved');
+    fetchStatus();
+  } catch (err) {
+    setTrainingHint('fail', err.message || 'Could not save training settings');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runTrainingOnce() {
+  const dryRun = !!$('#training-dry-run')?.checked;
+  if (!dryRun && !window.confirm('Queue troops now?\n\nThis spends resources and cannot be undone.')) return;
+  const btn = $('#training-run-once');
+  if (btn) btn.disabled = true;
+  setTrainingHint('muted', dryRun ? 'Dry run…' : 'Running training cycle…');
+  try {
+    const res = await fetch('/api/training/run-once', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ dryRun }),
+    });
+    const data = await parseApiJson(res);
+    if (data.trainingStatus) paintTrainingStatus(data.trainingStatus);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Run failed (${res.status})`);
+    setTrainingHint('ok', data.message || 'Training cycle finished');
+    fetchStatus();
+  } catch (err) {
+    setTrainingHint('fail', err.message || 'Could not run the training cycle');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runTrainingNow() {
+  const btn = $('#training-run-now');
+  if (btn) btn.disabled = true;
+  setTrainingHint('muted', 'Queueing cycle…');
+  try {
+    const res = await fetch('/api/training/run-now', { method: 'POST' });
+    const data = await parseApiJson(res);
+    if (data.trainingStatus) paintTrainingStatus(data.trainingStatus);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Run now failed (${res.status})`);
+    setTrainingHint('ok', data.message || 'Training cycle queued');
+  } catch (err) {
+    setTrainingHint('fail', err.message || 'Could not queue a training cycle');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/** Report what the bot can see in one building — for servers whose markup differs. */
+async function inspectTrainingBuilding(key, btn) {
+  if (btn) btn.disabled = true;
+  setTrainingHint('muted', `Opening ${key}…`);
+  try {
+    const res = await fetch('/api/training/inspect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ key }),
+    });
+    const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Inspect failed (${res.status})`);
+    const names = (data.troops || []).map(t => t.name || '(unnamed)').join(', ');
+    const queueMin = Math.round((data.queueSeconds || 0) / 60);
+    setTrainingHint('ok',
+      `${data.building}: queue ${queueMin} min · units seen: ${names || 'none'}`);
+  } catch (err) {
+    setTrainingHint('fail', err.message || 'Could not inspect that building');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* ----- Granary ----- */
+
+function setGranaryHint(kind, text) {
+  const hint = $('#granary-save-hint');
+  if (!hint) return;
+  hint.className = `marketplace-hint ${kind}`;
+  hint.textContent = text;
+}
+
+function fillGranaryForm(cfg) {
+  if (!cfg) return;
+  const set = (sel, v) => { const el = $(sel); if (el) el.checked = !!v; };
+  set('#granary-enabled', cfg.enabled);
+  set('#granary-dry-run', cfg.dryRun !== false);
+  set('#granary-npc-enabled', cfg.npcEnabled);
+  set('#granary-round-robin', cfg.roundRobin);
+  const val = (sel, v) => { const el = $(sel); if (el) el.value = String(v); };
+  val('#granary-threshold', cfg.cropPercentThreshold ?? 90);
+  val('#granary-leave-crop', cfg.leaveCrop ?? 0);
+  val('#granary-min', cfg.intervalMinutesMin ?? 15);
+  val('#granary-max', cfg.intervalMinutesMax ?? 40);
+  renderVillagePicker('#granary-villages', '#granary-villages-empty', cfg.villages || []);
+}
+
+function collectGranaryForm() {
+  return {
+    enabled: !!$('#granary-enabled')?.checked,
+    dryRun: !!$('#granary-dry-run')?.checked,
+    npcEnabled: !!$('#granary-npc-enabled')?.checked,
+    roundRobin: !!$('#granary-round-robin')?.checked,
+    cropPercentThreshold: Number($('#granary-threshold')?.value) || 90,
+    leaveCrop: Number($('#granary-leave-crop')?.value) || 0,
+    villages: collectVillagePicker('#granary-villages'),
+    intervalMinutesMin: Number($('#granary-min')?.value) || 15,
+    intervalMinutesMax: Number($('#granary-max')?.value) || 40,
+  };
+}
+
+function paintGranaryStatus(st) {
+  const dot = $('#granary-dot');
+  const txt = $('#granary-status-text');
+  const level = $('#granary-crop-level');
+  if (!dot || !txt) return;
+
+  if (st.enabled && st.schedulerRunning) {
+    dot.className = st.dryRun || !st.npcEnabled ? 'marketplace-dot warn' : 'marketplace-dot on';
+    const mode = st.dryRun ? 'DRY RUN' : (st.npcEnabled ? 'NPC armed' : 'watch only');
+    txt.textContent = `Watch ON · ${mode} · over ${st.cropPercentThreshold}%`;
+  } else if (st.enabled) {
+    dot.className = 'marketplace-dot warn';
+    txt.textContent = 'Watch ON — timer not running';
+  } else {
+    dot.className = 'marketplace-dot off';
+    txt.textContent = 'Watch OFF';
+  }
+
+  if (level) {
+    level.textContent = st.lastCropPercent != null
+      ? `crop ${Number(st.lastCropPercent).toFixed(0)}%`
+      : 'crop —';
+  }
+  const line = $('#granary-next-line');
+  if (line) line.textContent = st.lastMessage || st.statusLine || '—';
+  paintNextApprox('#granary-next-approx', st, 'check');
+}
+
+async function saveGranaryForm(ev) {
+  ev?.preventDefault();
+  const btn = $('#granary-save');
+  if (btn) btn.disabled = true;
+  setGranaryHint('muted', 'Saving…');
+  try {
+    const res = await fetch('/api/config/granary', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify(collectGranaryForm()),
+    });
+    const data = await parseApiJson(res);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Save failed (${res.status})`);
+    granaryFormDirty = false;
+    if (data.granary) fillGranaryForm(data.granary);
+    if (data.granaryStatus) paintGranaryStatus(data.granaryStatus);
+    setGranaryHint('ok', data.message || 'Granary settings saved');
+    fetchStatus();
+  } catch (err) {
+    setGranaryHint('fail', err.message || 'Could not save granary settings');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function checkGranaryNow() {
+  const btn = $('#granary-check');
+  if (btn) btn.disabled = true;
+  setGranaryHint('muted', 'Reading stocks…');
+  try {
+    const res = await fetch('/api/granary/check', { method: 'POST' });
+    const data = await parseApiJson(res);
+    if (data.granaryStatus) paintGranaryStatus(data.granaryStatus);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Check failed (${res.status})`);
+    const s = data.stocks || {};
+    setGranaryHint('ok',
+      `${data.message} · wood ${s.wood ?? '?'} clay ${s.clay ?? '?'} iron ${s.iron ?? '?'} crop ${s.crop ?? '?'}`);
+  } catch (err) {
+    setGranaryHint('fail', err.message || 'Could not read the resource bar');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runGranaryOnce() {
+  const dryRun = !!$('#granary-dry-run')?.checked;
+  const npc = !!$('#granary-npc-enabled')?.checked;
+  if (!dryRun && npc
+    && !window.confirm('Run the granary cycle now?\n\nIf crop is over the threshold this uses the NPC merchant, which spends gold.')) {
+    return;
+  }
+  const btn = $('#granary-run-once');
+  if (btn) btn.disabled = true;
+  setGranaryHint('muted', dryRun ? 'Dry run…' : 'Running granary cycle…');
+  try {
+    const res = await fetch('/api/granary/run-once', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ dryRun }),
+    });
+    const data = await parseApiJson(res);
+    if (data.granaryStatus) paintGranaryStatus(data.granaryStatus);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Run failed (${res.status})`);
+    setGranaryHint('ok', data.message || 'Granary cycle finished');
+    fetchStatus();
+  } catch (err) {
+    setGranaryHint('fail', err.message || 'Could not run the granary cycle');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runGranaryNow() {
+  const btn = $('#granary-run-now');
+  if (btn) btn.disabled = true;
+  setGranaryHint('muted', 'Queueing check…');
+  try {
+    const res = await fetch('/api/granary/run-now', { method: 'POST' });
+    const data = await parseApiJson(res);
+    if (data.granaryStatus) paintGranaryStatus(data.granaryStatus);
+    if (!res.ok || !data.ok) throw new Error(data.message || `Run now failed (${res.status})`);
+    setGranaryHint('ok', data.message || 'Granary check queued');
+  } catch (err) {
+    setGranaryHint('fail', err.message || 'Could not queue a granary check');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 $('#farm-list-save')?.addEventListener('click', saveFarmListForm);
 $('#farm-list-form')?.addEventListener('submit', ev => {
   ev.preventDefault();
@@ -3294,6 +3791,53 @@ $$('.marketplace-give-cb').forEach(cb => {
 $('#marketplace-scan')?.addEventListener('click', scanMarketplaceNow);
 $('#marketplace-run-now')?.addEventListener('click', runMarketplaceNow);
 $('#marketplace-accept-now')?.addEventListener('click', runMarketplaceOnce);
+
+$('#training-save')?.addEventListener('click', saveTrainingForm);
+$('#training-form')?.addEventListener('submit', ev => { ev.preventDefault(); saveTrainingForm(); });
+$('#training-form')?.addEventListener('input', () => { trainingFormDirty = true; });
+$('#training-form')?.addEventListener('change', () => { trainingFormDirty = true; });
+$('#training-run-now')?.addEventListener('click', runTrainingNow);
+$('#training-run-once')?.addEventListener('click', runTrainingOnce);
+$('#training-load-villages')?.addEventListener('click', async () => {
+  if (await loadVillagesInto('#training-villages', '#training-villages-empty', setTrainingHint)) {
+    trainingFormDirty = true;
+  }
+});
+$('#training-villages-all')?.addEventListener('click', () => {
+  $$('#training-villages .village-pick-cb').forEach(cb => { cb.checked = true; });
+  trainingFormDirty = true;
+});
+$('#training-villages-none')?.addEventListener('click', () => {
+  $$('#training-villages .village-pick-cb').forEach(cb => { cb.checked = false; });
+  trainingFormDirty = true;
+});
+$('#training-buildings')?.addEventListener('click', ev => {
+  const btn = ev.target.closest('.training-inspect');
+  if (!btn) return;
+  const key = btn.closest('.training-building')?.dataset.key;
+  if (key) inspectTrainingBuilding(key, btn);
+});
+
+$('#granary-save')?.addEventListener('click', saveGranaryForm);
+$('#granary-form')?.addEventListener('submit', ev => { ev.preventDefault(); saveGranaryForm(); });
+$('#granary-form')?.addEventListener('input', () => { granaryFormDirty = true; });
+$('#granary-form')?.addEventListener('change', () => { granaryFormDirty = true; });
+$('#granary-check')?.addEventListener('click', checkGranaryNow);
+$('#granary-run-now')?.addEventListener('click', runGranaryNow);
+$('#granary-run-once')?.addEventListener('click', runGranaryOnce);
+$('#granary-load-villages')?.addEventListener('click', async () => {
+  if (await loadVillagesInto('#granary-villages', '#granary-villages-empty', setGranaryHint)) {
+    granaryFormDirty = true;
+  }
+});
+$('#granary-villages-all')?.addEventListener('click', () => {
+  $$('#granary-villages .village-pick-cb').forEach(cb => { cb.checked = true; });
+  granaryFormDirty = true;
+});
+$('#granary-villages-none')?.addEventListener('click', () => {
+  $$('#granary-villages .village-pick-cb').forEach(cb => { cb.checked = false; });
+  granaryFormDirty = true;
+});
 $('#marketplace-load-villages')?.addEventListener('click', loadMarketplaceVillages);
 $('#marketplace-villages-all')?.addEventListener('click', () => setAllMarketplaceVillages(true));
 $('#marketplace-villages-none')?.addEventListener('click', () => setAllMarketplaceVillages(false));

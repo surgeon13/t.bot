@@ -173,6 +173,43 @@ Run state is stored in **`data/marketplace-state.json`** (`nextRunAt`, `lastAcce
 `lastMatched`, `lastOffers`). Lifetime accepts are counted as `marketplaceAccepts` in
 `data/totals-state.json`.
 
+### Troop training (`training`)
+
+See **[training.md](training.md)**. Keeps each building's queue topped up.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `training.enabled` | boolean | `false` | Enable the training timer in the GUI. |
+| `training.dryRun` | boolean | `true` | Log what would be queued without training. **Missing also means `true`.** |
+| `training.roundRobin` | boolean | `false` | Visit one village per cycle instead of all of them. |
+| `training.villages` | object[] | `[]` | `{ "did": "28847", "name": "MJ00", "enabled": true }`; empty = current village. |
+| `training.buildings` | object[] | `[]` | One row per building — see below. |
+| `training.intervalMinutesMin` | number | `20` | Minimum minutes between checks. |
+| `training.intervalMinutesMax` | number | `45` | Maximum (random in range). |
+
+Each `buildings` entry: `key` (`barracks`, `greatBarracks`, `stable`, `greatStable`,
+`workshop`), `enabled`, `troop` (name as the game spells it), `targetQueueHours`
+(1–72), `maxPerBatch` (`0` = no cap of our own). Run state lives in
+**`data/training-state.json`**, which also remembers where round-robin got to.
+
+### Granary watch (`granary`)
+
+See **[granary.md](granary.md)**. Converts crop via the NPC before it overflows.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `granary.enabled` | boolean | `false` | Enable the granary timer. |
+| `granary.dryRun` | boolean | `true` | Log only. **Missing also means `true`.** |
+| `granary.npcEnabled` | boolean | `false` | Allow the NPC conversion. **Spends gold** — a second explicit yes on top of the dry run. |
+| `granary.cropPercentThreshold` | number | `90` | Crop fill % that triggers a conversion (1–100). |
+| `granary.leaveCrop` | number | `0` | Crop left behind after converting. |
+| `granary.roundRobin` | boolean | `false` | One village per cycle. |
+| `granary.villages` | object[] | `[]` | As `training.villages`. |
+| `granary.intervalMinutesMin` | number | `15` | Minimum minutes between checks. |
+| `granary.intervalMinutesMax` | number | `40` | Maximum (random in range). |
+
+Run state lives in **`data/granary-state.json`**.
+
 ### Work / sleep rhythm (`workSleep`)
 
 Alternates **work** windows (automation allowed) and **sleep** windows (farm list + bonus schedulers pause). Each window length is random between min and max **minutes**. The GUI may close the browser during sleep (see [gui.md](gui.md)).

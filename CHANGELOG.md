@@ -23,6 +23,24 @@ All notable changes to **t.bot** are documented here. The project follows [Seman
 - **Lifetime total** — `marketplaceAccepts` in `data/totals-state.json`, shown as
   **Offers** on the dashboard.
 
+### Added
+
+- **Troop training runner** — keeps each building's queue topped up to a depth you
+  set. Barracks, great barracks, stable, great stable and workshop are separate
+  rows, so the same unit trains in both barracks at once. Per building: troop name,
+  target queue hours and an optional batch cap. Villages are picked the same way as
+  the marketplace, with an optional **round-robin** that visits one village per
+  cycle. An **Inspect** button dumps the unit rows and queue depth the bot can see,
+  for servers whose markup differs. See [docs/training.md](docs/training.md).
+- **Granary watch** — polls crop and, over a threshold, uses the NPC merchant to
+  re-split everything into 1:1:1 wood/clay/iron with the crop emptied. The split
+  always sums to exactly the current total (what the game's form demands), never
+  exceeds the warehouse, and reports instead of submitting when even the best split
+  will not fit. **Check now** reads stocks without converting. The NPC spends gold,
+  so it needs its own `npcEnabled` yes on top of the dry run.
+  See [docs/granary.md](docs/granary.md).
+- **`/api/villages`** — village list for any picker, not just the marketplace.
+
 ### Fixed
 
 - **Marketplace village discovery** — "Load from game" found nothing on current

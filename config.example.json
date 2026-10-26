@@ -49,6 +49,32 @@
     "intervalMinutesMin": 20,
     "intervalMinutesMax": 45
   },
+  "training": {
+    "enabled": false,
+    "dryRun": true,
+    "roundRobin": false,
+    "villages": [],
+    "buildings": [
+      { "key": "barracks", "enabled": false, "troop": "", "targetQueueHours": 8, "maxPerBatch": 0 },
+      { "key": "greatBarracks", "enabled": false, "troop": "", "targetQueueHours": 8, "maxPerBatch": 0 },
+      { "key": "stable", "enabled": false, "troop": "", "targetQueueHours": 8, "maxPerBatch": 0 },
+      { "key": "greatStable", "enabled": false, "troop": "", "targetQueueHours": 8, "maxPerBatch": 0 },
+      { "key": "workshop", "enabled": false, "troop": "", "targetQueueHours": 8, "maxPerBatch": 0 }
+    ],
+    "intervalMinutesMin": 20,
+    "intervalMinutesMax": 45
+  },
+  "granary": {
+    "enabled": false,
+    "dryRun": true,
+    "npcEnabled": false,
+    "cropPercentThreshold": 90,
+    "leaveCrop": 0,
+    "roundRobin": false,
+    "villages": [],
+    "intervalMinutesMin": 15,
+    "intervalMinutesMax": 40
+  },
   "workSleep": {
     "enabled": false,
     "workMinutesMin": 30,

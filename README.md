@@ -10,7 +10,7 @@ The bot watches the required video ads and clicks through Travian’s dialogs. T
 
 ## Features (0.9.6)
 
-- **Web GUI** — per-bonus buttons, hero stats, adventures list, **farm list** runner, **marketplace offers** runner, live log, **Claim all available resources**, **Quit bot**
+- **Web GUI** — per-bonus buttons, hero stats, adventures list, **farm list** runner, **marketplace offers** runner, **troop training**, **granary watch**, live log, **Claim all available resources**, **Quit bot**
 - **Work/sleep rhythm** — random work and sleep windows; schedulers pause during sleep
 - **Daily schedule** — half-hour slots (local time); optional **Off / P1 / P2** proxy per hour; current hour highlighted
 - **Random micro-pauses** — brief strict stops between automated runs
@@ -33,6 +33,8 @@ The bot watches the required video ads and clicks through Travian’s dialogs. T
 | Web GUI & API | [docs/gui.md](docs/gui.md) |
 | Farm list runner | [docs/farm-list.md](docs/farm-list.md) |
 | Marketplace offers | [docs/marketplace.md](docs/marketplace.md) |
+| Troop training | [docs/training.md](docs/training.md) |
+| Granary watch / NPC | [docs/granary.md](docs/granary.md) |
 | Resource +15% bonuses | [docs/resource-bonuses.md](docs/resource-bonuses.md) |
 | Login, videos, headless | [docs/troubleshooting.md](docs/troubleshooting.md) |
 | Module map | [docs/architecture.md](docs/architecture.md) |
@@ -146,6 +148,10 @@ npm run gui
 | `marketplace.enabled` | `false` | Marketplace offer runner in GUI |
 | `marketplace.minRatio` | `1.5` | Accept offers at this ratio or better |
 | `marketplace.dryRun` | `true` | Log matches without accepting (also true when missing) |
+| `training.enabled` | `false` | Keep troop queues topped up |
+| `training.buildings` | `[]` | Per building: troop name, queue depth, batch cap |
+| `granary.enabled` | `false` | Watch crop fill |
+| `granary.npcEnabled` | `false` | Allow the NPC conversion — **spends gold** |
 
 See [docs/configuration.md](docs/configuration.md) for every field and state file.
 
@@ -166,6 +172,10 @@ See [docs/configuration.md](docs/configuration.md) for every field and state fil
 | `scheduler.js` / `scheduleState.js` | Periodic bonus runs |
 | `farmList.js` / `farmListScheduler.js` | Farm list sends + timer |
 | `marketplace.js` / `marketplaceScheduler.js` | Marketplace offer scan + timer |
+| `troops.js` / `troopsConfig.js` / `troopsState.js` | Troop training queues |
+| `granary.js` / `granaryConfig.js` / `granaryState.js` | Granary watch + NPC conversion |
+| `villages.js` / `villageSelection.js` | Village list, switching, round-robin |
+| `intervalScheduler.js` | Shared min–max timer loop with pause gates |
 | `workSleep.js` / `microPause.js` / `dailySchedule.js` | Automation pause gates |
 | `sessionGate.js` | Browser keep-open policy (GUI) |
 | `terminalControl.js` | `status` / `stop` / `run` during tasks |

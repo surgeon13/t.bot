@@ -13,6 +13,8 @@ This folder contains detailed guides. For a quick start, see the [main README](.
 | [Resource bonuses](resource-bonuses.md) | Shop flow, claimable vs active, batch claim |
 | [Farm list runner](farm-list.md) | Checked lists per cycle, send-all mode, min–max minutes |
 | [Marketplace offers](marketplace.md) | Ratio threshold, dry run, per-run cap, resource filter |
+| [Troop training](training.md) | Queue depth per building, round-robin villages |
+| [Granary watch](granary.md) | Crop threshold, NPC 1:1:1 conversion |
 | [Troubleshooting](troubleshooting.md) | Login, videos, headless, debug snapshots |
 | [Architecture](architecture.md) | Module map and data flow |
 

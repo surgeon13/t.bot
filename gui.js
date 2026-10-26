@@ -102,6 +102,39 @@ const {
 } = require('./marketplaceState');
 const { runMarketplaceSchedulerLoop } = require('./marketplaceScheduler');
 const {
+  trainingSettings,
+  buildingRowsForApi,
+  normalizeBuildingsFromConfig,
+  describeTrainingSettings,
+  runTrainingCycle,
+  inspectTrainingBuilding,
+  BUILDINGS,
+} = require('./troops');
+const {
+  trainingGuiStatus,
+  setEmbeddedTrainingSchedulerActive,
+  writeTrainingState,
+  readTrainingState,
+  postponeTrainingRun,
+  randomNextRunAt: randomTrainingNextRunAt,
+} = require('./troopsState');
+const {
+  granarySettings,
+  describeGranarySettings,
+  runGranaryCycle,
+  readGranaryStatus,
+} = require('./granary');
+const {
+  granaryGuiStatus,
+  setEmbeddedGranarySchedulerActive,
+  writeGranaryState,
+  readGranaryState,
+  postponeGranaryRun,
+  randomNextRunAt: randomGranaryNextRunAt,
+} = require('./granaryState');
+const { runIntervalSchedulerLoop } = require('./intervalScheduler');
+const { normalizeVillagesFromConfig: normalizeVillagePicks } = require('./villageSelection');
+const {
   workSleepConfigForApi,
   workSleepGuiStatus,
   applyWorkSleepConfigFromBody,
@@ -148,6 +181,9 @@ const GUI_FEATURES = [
   'marketplace-scan',
   'marketplace-run',
   'marketplace-villages',
+  'villages',
+  'training',
+  'granary',
 ];
 
 /* --------------------------------------------------------------------- */
@@ -484,6 +520,8 @@ function syncEmbeddedMarketplaceScheduler() {
   embeddedMarketGen += 1;
   const gen = embeddedMarketGen;
   stopEmbeddedMarketplaceScheduler();
+  trainingRunner.stop();
+  granaryRunner.stop();
 
   const cfg = loadConfig();
   const mp = marketplaceSettings(cfg);
@@ -532,6 +570,264 @@ function syncEmbeddedMarketplaceScheduler() {
         }, 2000);
       }
     });
+}
+
+/* ----- Troop training + granary runners ----- */
+
+/**
+ * Both new runners share one shape: a control object, a task promise, and a
+ * generation counter so a restart cannot be clobbered by an older run's finally.
+ * @param {object} o
+ */
+function makeEmbeddedRunner(o) {
+  const r = {
+    control: null,
+    task: null,
+    gen: 0,
+    lastNotLoggedInLogAt: 0,
+  };
+
+  r.stop = () => { if (r.control) r.control.stop = true; };
+
+  /** One cycle inside the shared browser session. */
+  r.run = (options = {}) => lock.run(o.lockName, async () => {
+    try {
+      const gate = automationWindowAllowed();
+      if (!gate.allowed && !options.bypassAutomationGate) {
+        return {
+          ok: false,
+          status: 'skipped',
+          message: gate.reason === 'daily-schedule'
+            ? `Daily schedule off-hours — ${o.label} queued for the next active slot`
+            : `Automation paused (work/sleep)`,
+        };
+      }
+      if (!options.bypassSleep) {
+        if (await waitForWorkPhase({}) === 'stopped') {
+          return { ok: false, status: 'skipped', message: `${o.label} stopped` };
+        }
+      }
+      await ensureSession();
+      if (!loggedIn || !page || page.isClosed()) {
+        o.postpone();
+        const now = Date.now();
+        if (now - r.lastNotLoggedInLogAt > 60_000) {
+          r.lastNotLoggedInLogAt = now;
+          log.warn(TAG, `${o.label} skipped: not logged in`);
+        }
+        return { ok: false, message: 'Not logged in' };
+      }
+      if (!(await ensureGameShell(page, { tag: TAG }))) {
+        loggedIn = false;
+        o.postpone();
+        return { ok: false, message: 'Game shell unreachable' };
+      }
+      return await o.execute(page, options);
+    } catch (err) {
+      log.error(TAG, `${o.label} failed: ${err.message}`);
+      return { ok: false, status: 'failed', message: err.message };
+    }
+  });
+
+  r.sync = () => {
+    r.gen += 1;
+    const gen = r.gen;
+    r.stop();
+
+    const settings = o.getSettings();
+    if (process.env.GUI_NO_SCHEDULER === '1' || !settings.enabled) {
+      r.control = null;
+      r.task = null;
+      o.setActive(false);
+      return;
+    }
+
+    const control = { stop: false, runNow: false };
+    r.control = control;
+    o.setActive(true);
+    log.info(TAG, `${o.label} scheduler started (${o.describe(settings)})`);
+
+    const st = o.readState();
+    if (!st?.nextRunAt || new Date(st.nextRunAt).getTime() > Date.now() + 60_000) {
+      o.writeState({
+        nextRunAt: new Date().toISOString(),
+        intervalMinutesMin: settings.intervalMinutesMin,
+        intervalMinutesMax: settings.intervalMinutesMax,
+      });
+    }
+
+    r.task = runIntervalSchedulerLoop({
+      tag: TAG,
+      label: o.label,
+      control,
+      executeRun: r.run,
+      getSettings: o.getSettings,
+      readState: o.readState,
+      writeState: o.writeState,
+      postpone: o.postpone,
+      randomNextRunAt: o.randomNextRunAt,
+    })
+      .then(result => {
+        log.info(TAG, `${o.label} scheduler stopped (${result.reason})`);
+        return result;
+      })
+      .catch(err => {
+        log.error(TAG, `${o.label} scheduler error: ${err.message}`);
+      })
+      .finally(() => {
+        if (gen !== r.gen) return;
+        r.control = null;
+        r.task = null;
+        o.setActive(false);
+        if (!guiShuttingDown && o.getSettings().enabled && process.env.GUI_NO_SCHEDULER !== '1') {
+          log.warn(TAG, `${o.label} scheduler exited unexpectedly — restarting in 2s`);
+          setTimeout(() => { if (gen === r.gen) r.sync(); }, 2000);
+        }
+      });
+  };
+
+  return r;
+}
+
+const trainingRunner = makeEmbeddedRunner({
+  label: 'Troop training',
+  lockName: 'trainingRun',
+  getSettings: () => trainingSettings(),
+  describe: describeTrainingSettings,
+  readState: readTrainingState,
+  writeState: writeTrainingState,
+  postpone: postponeTrainingRun,
+  randomNextRunAt: randomTrainingNextRunAt,
+  setActive: setEmbeddedTrainingSchedulerActive,
+  execute: async (p, options) => {
+    const result = await runTrainingCycle(p, {
+      dryRun: options.dryRun,
+      lastVillageDid: readTrainingState()?.lastVillageDid ?? null,
+    });
+    writeTrainingState({
+      lastRunAt: new Date().toISOString(),
+      lastQueued: result.queued ?? 0,
+      lastMessage: result.message || null,
+      lastVillages: (result.villages || []).map(v => ({
+        did: v.did, name: v.name, ok: v.ok !== false, message: v.message || null,
+        buildings: (v.buildings || []).map(b => ({
+          label: b.label, troop: b.troop, queued: b.queued ?? 0,
+          wouldQueue: b.wouldQueue ?? 0, message: b.message,
+        })),
+      })),
+      lastVillageDid: result.lastVillageDid ?? null,
+    });
+    return result;
+  },
+});
+
+const granaryRunner = makeEmbeddedRunner({
+  label: 'Granary watch',
+  lockName: 'granaryRun',
+  getSettings: () => granarySettings(),
+  describe: describeGranarySettings,
+  readState: readGranaryState,
+  writeState: writeGranaryState,
+  postpone: postponeGranaryRun,
+  randomNextRunAt: randomGranaryNextRunAt,
+  setActive: setEmbeddedGranarySchedulerActive,
+  execute: async (p, options) => {
+    const result = await runGranaryCycle(p, {
+      dryRun: options.dryRun,
+      lastVillageDid: readGranaryState()?.lastVillageDid ?? null,
+    });
+    const first = (result.villages || [])[0];
+    writeGranaryState({
+      lastRunAt: new Date().toISOString(),
+      lastCropPercent: first?.cropPercent ?? null,
+      lastConverted: result.converted ?? 0,
+      lastMessage: result.message || null,
+      lastVillages: (result.villages || []).map(v => ({
+        did: v.did, name: v.name, ok: v.ok !== false,
+        cropPercent: v.cropPercent ?? null, converted: !!v.converted, message: v.message || null,
+      })),
+      lastVillageDid: result.lastVillageDid ?? null,
+    });
+    return result;
+  },
+});
+
+function trainingConfigForApi(cfg = loadConfig()) {
+  const t = trainingSettings(cfg);
+  return {
+    enabled: t.enabled,
+    dryRun: t.dryRun,
+    roundRobin: t.roundRobin,
+    villages: t.villages,
+    buildings: buildingRowsForApi(cfg.training?.buildings),
+    intervalMinutesMin: t.intervalMinutesMin,
+    intervalMinutesMax: t.intervalMinutesMax,
+  };
+}
+
+function applyTrainingConfigFromBody(cfg, body = {}) {
+  if (!cfg.training) cfg.training = {};
+  const t = cfg.training;
+  if (typeof body.enabled === 'boolean') t.enabled = body.enabled;
+  if (typeof body.dryRun === 'boolean') t.dryRun = body.dryRun;
+  if (typeof body.roundRobin === 'boolean') t.roundRobin = body.roundRobin;
+  if (body.villages !== undefined) t.villages = normalizeVillagePicks(body.villages);
+  if (body.buildings !== undefined) t.buildings = normalizeBuildingsFromConfig(body.buildings);
+  for (const [key, fallback] of [['intervalMinutesMin', 20], ['intervalMinutesMax', 45]]) {
+    if (body[key] !== undefined) {
+      const n = Number(body[key]);
+      if (Number.isFinite(n) && n >= 1) t[key] = n;
+    }
+    if (t[key] === undefined) t[key] = fallback;
+  }
+  const min = Math.max(1, Number(t.intervalMinutesMin) || 20);
+  t.intervalMinutesMin = min;
+  t.intervalMinutesMax = Math.max(min, Number(t.intervalMinutesMax) || 45);
+  return cfg;
+}
+
+function granaryConfigForApi(cfg = loadConfig()) {
+  const g = granarySettings(cfg);
+  return {
+    enabled: g.enabled,
+    dryRun: g.dryRun,
+    npcEnabled: g.npcEnabled,
+    cropPercentThreshold: g.cropPercentThreshold,
+    leaveCrop: g.leaveCrop,
+    roundRobin: g.roundRobin,
+    villages: g.villages,
+    intervalMinutesMin: g.intervalMinutesMin,
+    intervalMinutesMax: g.intervalMinutesMax,
+  };
+}
+
+function applyGranaryConfigFromBody(cfg, body = {}) {
+  if (!cfg.granary) cfg.granary = {};
+  const g = cfg.granary;
+  if (typeof body.enabled === 'boolean') g.enabled = body.enabled;
+  if (typeof body.dryRun === 'boolean') g.dryRun = body.dryRun;
+  if (typeof body.npcEnabled === 'boolean') g.npcEnabled = body.npcEnabled;
+  if (typeof body.roundRobin === 'boolean') g.roundRobin = body.roundRobin;
+  if (body.villages !== undefined) g.villages = normalizeVillagePicks(body.villages);
+  if (body.cropPercentThreshold !== undefined) {
+    const n = Number(body.cropPercentThreshold);
+    if (Number.isFinite(n) && n > 0 && n <= 100) g.cropPercentThreshold = n;
+  }
+  if (body.leaveCrop !== undefined) {
+    const n = Math.floor(Number(body.leaveCrop));
+    if (Number.isFinite(n) && n >= 0) g.leaveCrop = n;
+  }
+  for (const [key, fallback] of [['intervalMinutesMin', 15], ['intervalMinutesMax', 40]]) {
+    if (body[key] !== undefined) {
+      const n = Number(body[key]);
+      if (Number.isFinite(n) && n >= 1) g[key] = n;
+    }
+    if (g[key] === undefined) g[key] = fallback;
+  }
+  const min = Math.max(1, Number(g.intervalMinutesMin) || 15);
+  g.intervalMinutesMin = min;
+  g.intervalMinutesMax = Math.max(min, Number(g.intervalMinutesMax) || 40);
+  return cfg;
 }
 
 function marketplaceConfigForApi(cfg = loadConfig()) {
@@ -799,6 +1095,14 @@ function ensureEmbeddedSchedulersRunning() {
   if (marketplaceSettings(cfg).enabled && !embeddedMarketControl && !embeddedMarketTask) {
     log.info(TAG, 'Restarting marketplace scheduler');
     syncEmbeddedMarketplaceScheduler();
+  }
+  if (trainingSettings(cfg).enabled && !trainingRunner.control && !trainingRunner.task) {
+    log.info(TAG, 'Restarting training scheduler');
+    trainingRunner.sync();
+  }
+  if (granarySettings(cfg).enabled && !granaryRunner.control && !granaryRunner.task) {
+    log.info(TAG, 'Restarting granary scheduler');
+    granaryRunner.sync();
   }
 }
 
@@ -1421,6 +1725,10 @@ app.get('/api/status', async (_req, res) => {
     farmListStatus: farmListStatusForApi(cfg),
     marketplaceConfig: marketplaceConfigForApi(cfg),
     marketplaceStatus: marketplaceStatusForApi(cfg),
+    trainingConfig: trainingConfigForApi(cfg),
+    trainingStatus: trainingGuiStatus(cfg),
+    granaryConfig: granaryConfigForApi(cfg),
+    granaryStatus: granaryGuiStatus(cfg),
     workSleepConfig: workSleepConfigForApi(cfg),
     workSleepStatus: workSleepGuiStatus(cfg),
     microPauseConfig: microPauseConfigForApi(cfg),
@@ -1798,6 +2106,142 @@ app.post('/api/marketplace/accept-now', async (req, res) => {
     marketplaceStatus: marketplaceStatusForApi(),
     totals: getTotals(),
   });
+});
+
+/** Village list for any picker (marketplace, training, granary). */
+app.get('/api/villages', async (_req, res) => {
+  const result = await withSession('villages', async (p) => {
+    const discovered = await loadVillages(p);
+    if (!discovered.length) {
+      return { ok: false, message: 'No villages found — is the village list visible in game?' };
+    }
+    return { ok: true, villages: discovered, discoveredCount: discovered.length };
+  });
+  res.json(result);
+});
+
+app.get('/api/config/training', (_req, res) => {
+  const cfg = loadConfig();
+  res.json({ ok: true, training: trainingConfigForApi(cfg), trainingStatus: trainingGuiStatus(cfg) });
+});
+
+app.put('/api/config/training', (req, res) => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(400).json({ ok: false, message: 'Expected JSON object in request body.' });
+  }
+  try {
+    const cfg = applyTrainingConfigFromBody(loadConfig(), req.body);
+    saveConfig(cfg);
+    trainingRunner.sync();
+    const t = trainingSettings(cfg);
+    res.json({
+      ok: true,
+      training: trainingConfigForApi(cfg),
+      trainingStatus: trainingGuiStatus(cfg),
+      message: !t.enabled
+        ? 'Troop training is off.'
+        : !t.activeBuildingCount
+          ? 'Training on — tick a building and give it a troop name.'
+          : t.dryRun
+            ? `Training saved — DRY RUN: ${describeTrainingSettings(t)}`
+            : `Training saved — ${describeTrainingSettings(t)}`,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+app.post('/api/training/run-now', (_req, res) => {
+  const t = trainingSettings();
+  if (!t.enabled) return res.status(400).json({ ok: false, message: 'Turn on Troop training and Save first.' });
+  if (process.env.GUI_NO_SCHEDULER === '1') {
+    return res.status(400).json({ ok: false, message: 'Embedded schedulers disabled (GUI_NO_SCHEDULER=1). Use Run once.' });
+  }
+  if (!trainingRunner.control) trainingRunner.sync();
+  if (!trainingRunner.control) {
+    return res.status(503).json({ ok: false, message: 'Training scheduler could not start. Check bot.log.' });
+  }
+  trainingRunner.control.runNow = true;
+  trainingRunner.control.bypassSleepOnce = true;
+  res.json({ ok: true, message: 'Training cycle requested.', trainingStatus: trainingGuiStatus() });
+});
+
+app.post('/api/training/run-once', async (req, res) => {
+  const t = trainingSettings();
+  const dryRun = typeof req.body?.dryRun === 'boolean' ? req.body.dryRun : t.dryRun;
+  const result = await trainingRunner.run({ bypassSleep: true, dryRun });
+  res.json({ ...result, trainingStatus: trainingGuiStatus() });
+});
+
+/** Read-only: dump what the bot sees in one training building. */
+app.post('/api/training/inspect', async (req, res) => {
+  const key = String(req.body?.key || '').trim();
+  const building = BUILDINGS.find(b => b.key === key);
+  if (!building) {
+    return res.status(400).json({ ok: false, message: `Unknown building "${key}"` });
+  }
+  const result = await withSession('trainingInspect', async (p) => {
+    const read = await inspectTrainingBuilding(p, building.gid);
+    return { ...read, building: building.label, gid: building.gid };
+  });
+  res.json(result);
+});
+
+app.get('/api/config/granary', (_req, res) => {
+  const cfg = loadConfig();
+  res.json({ ok: true, granary: granaryConfigForApi(cfg), granaryStatus: granaryGuiStatus(cfg) });
+});
+
+app.put('/api/config/granary', (req, res) => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(400).json({ ok: false, message: 'Expected JSON object in request body.' });
+  }
+  try {
+    const cfg = applyGranaryConfigFromBody(loadConfig(), req.body);
+    saveConfig(cfg);
+    granaryRunner.sync();
+    const g = granarySettings(cfg);
+    res.json({
+      ok: true,
+      granary: granaryConfigForApi(cfg),
+      granaryStatus: granaryGuiStatus(cfg),
+      message: !g.enabled
+        ? 'Granary watch is off.'
+        : g.dryRun
+          ? `Granary saved — DRY RUN: ${describeGranarySettings(g)}`
+          : `Granary saved — ${describeGranarySettings(g)}`,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+app.post('/api/granary/run-now', (_req, res) => {
+  const g = granarySettings();
+  if (!g.enabled) return res.status(400).json({ ok: false, message: 'Turn on Granary watch and Save first.' });
+  if (process.env.GUI_NO_SCHEDULER === '1') {
+    return res.status(400).json({ ok: false, message: 'Embedded schedulers disabled (GUI_NO_SCHEDULER=1). Use Check now.' });
+  }
+  if (!granaryRunner.control) granaryRunner.sync();
+  if (!granaryRunner.control) {
+    return res.status(503).json({ ok: false, message: 'Granary scheduler could not start. Check bot.log.' });
+  }
+  granaryRunner.control.runNow = true;
+  granaryRunner.control.bypassSleepOnce = true;
+  res.json({ ok: true, message: 'Granary check requested.', granaryStatus: granaryGuiStatus() });
+});
+
+app.post('/api/granary/run-once', async (req, res) => {
+  const g = granarySettings();
+  const dryRun = typeof req.body?.dryRun === 'boolean' ? req.body.dryRun : g.dryRun;
+  const result = await granaryRunner.run({ bypassSleep: true, dryRun });
+  res.json({ ...result, granaryStatus: granaryGuiStatus() });
+});
+
+/** Read-only: current stocks and crop fill, converts nothing. */
+app.post('/api/granary/check', async (_req, res) => {
+  const result = await withSession('granaryCheck', async (p) => readGranaryStatus(p));
+  res.json({ ...result, granaryStatus: granaryGuiStatus() });
 });
 
 app.post('/api/schedule/run-now', (_req, res) => {
@@ -2378,6 +2822,8 @@ const server = app.listen(PORT, HOST, () => {
     syncEmbeddedScheduler();
     syncEmbeddedFarmScheduler();
     syncEmbeddedMarketplaceScheduler();
+    trainingRunner.sync();
+    granaryRunner.sync();
   })();
 });
 
@@ -2435,6 +2881,12 @@ async function shutdown() {
   }
   if (embeddedMarketTask) {
     try { await embeddedMarketTask; } catch { /* already logged */ }
+  }
+  if (trainingRunner.task) {
+    try { await trainingRunner.task; } catch { /* already logged */ }
+  }
+  if (granaryRunner.task) {
+    try { await granaryRunner.task; } catch { /* already logged */ }
   }
   try { server.close(); } catch {}
   await closeSession();

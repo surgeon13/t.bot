@@ -1640,6 +1640,41 @@ button.ghost.adventures-send-btn:hover:not([disabled]) {
   background: var(--text-mute);
   flex-shrink: 0;
 }
+.training-buildings {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0;
+}
+.training-building {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.training-building-on {
+  min-width: 128px;
+}
+input.training-troop {
+  flex: 1 1 180px;
+  min-width: 140px;
+}
+/* Crop amounts run to five digits — wider than the 52px hour boxes. */
+#granary-leave-crop,
+.training-batch {
+  width: 72px;
+  min-width: 72px;
+}
+.granary-npc-check {
+  /* Spending gold should not look like the other toggles. */
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
 .marketplace-villages-head {
   display: flex;
   flex-wrap: wrap;

@@ -339,6 +339,121 @@
             <p class="marketplace-hint muted" id="marketplace-save-hint">Save — reads the ratio column on the marketplace offers tab</p>
           </form>
         </section>
+
+        <section class="marketplace-panel" id="training-panel">
+          <form id="training-form" class="marketplace-form" autocomplete="off">
+            <div class="marketplace-status-row">
+              <span class="proxy-bar-label">Troop training</span>
+              <span class="marketplace-dot" id="training-dot" aria-hidden="true"></span>
+              <span class="marketplace-status-text" id="training-status-text">—</span>
+            </div>
+            <p class="marketplace-lead muted">
+              Tops each building's queue back up to the target depth. Barracks and great
+              barracks are separate queues, so the same unit trains in both at once.
+            </p>
+            <div class="marketplace-fields-row">
+              <label class="proxy-check" title="Top up training queues on a timer">
+                <input type="checkbox" id="training-enabled" name="enabled" />
+                <span>Runner ON</span>
+              </label>
+              <label class="proxy-check marketplace-dry-check" title="Log what would be queued without training anything">
+                <input type="checkbox" id="training-dry-run" name="dryRun" />
+                <span>Dry run</span>
+              </label>
+              <label class="proxy-check" title="Visit one village per cycle instead of all of them">
+                <input type="checkbox" id="training-round-robin" name="roundRobin" />
+                <span>Round-robin</span>
+              </label>
+              <label class="schedule-interval-lbl">
+                <span>Every</span>
+                <input class="proxy-inp schedule-hours" type="number" id="training-min" min="1" step="1" value="20" title="Minimum minutes between checks" />
+                <span>–</span>
+                <input class="proxy-inp schedule-hours" type="number" id="training-max" min="1" step="1" value="45" title="Maximum minutes between checks" />
+                <span>min</span>
+              </label>
+              <button type="button" id="training-save" class="proxy-save proxy-btn-sm">Save</button>
+              <button type="button" id="training-run-now" class="ghost proxy-btn-sm" title="Queue the next cycle on the runner">Run now</button>
+              <button type="button" id="training-run-once" class="proxy-save proxy-btn-sm marketplace-accept-btn" title="Run one cycle right now">Run once</button>
+            </div>
+            <div class="marketplace-villages-head">
+              <span class="marketplace-give-lbl">Villages</span>
+              <button type="button" id="training-load-villages" class="ghost proxy-btn-sm" title="Read your village list from the game">Load from game</button>
+              <button type="button" id="training-villages-all" class="ghost proxy-btn-sm">All</button>
+              <button type="button" id="training-villages-none" class="ghost proxy-btn-sm">None</button>
+            </div>
+            <div id="training-villages" class="marketplace-villages" role="list" aria-label="Villages to train in"></div>
+            <p class="marketplace-villages-empty muted" id="training-villages-empty">No village picked — trains in whichever village the browser is on.</p>
+            <div class="training-buildings" id="training-buildings" role="list" aria-label="Training buildings"></div>
+            <p class="marketplace-line muted" id="training-next-line">—</p>
+            <p class="marketplace-line marketplace-line-next-red" id="training-next-approx">Next check approx: —</p>
+            <p class="marketplace-hint muted" id="training-save-hint">Save — type the troop name exactly as the game shows it</p>
+          </form>
+        </section>
+
+        <section class="marketplace-panel" id="granary-panel">
+          <form id="granary-form" class="marketplace-form" autocomplete="off">
+            <div class="marketplace-status-row">
+              <span class="proxy-bar-label">Granary</span>
+              <span class="marketplace-dot" id="granary-dot" aria-hidden="true"></span>
+              <span class="marketplace-status-text" id="granary-status-text">—</span>
+              <span class="marketplace-accept-total muted" id="granary-crop-level">crop —</span>
+            </div>
+            <p class="marketplace-lead muted">
+              Watches crop. Over the threshold it can NPC everything into 1:1:1 wood/clay/iron
+              and empty the crop — <strong>the NPC costs gold</strong>.
+            </p>
+            <div class="marketplace-fields-row">
+              <label class="proxy-check" title="Poll the granary on a timer">
+                <input type="checkbox" id="granary-enabled" name="enabled" />
+                <span>Watch ON</span>
+              </label>
+              <label class="proxy-check marketplace-dry-check" title="Log what would be converted without spending gold">
+                <input type="checkbox" id="granary-dry-run" name="dryRun" />
+                <span>Dry run</span>
+              </label>
+              <label class="proxy-check granary-npc-check" title="Allow the NPC merchant — this spends gold">
+                <input type="checkbox" id="granary-npc-enabled" name="npcEnabled" />
+                <span>Use NPC (gold)</span>
+              </label>
+              <label class="schedule-interval-lbl">
+                <span>Over</span>
+                <input class="proxy-inp schedule-hours" type="number" id="granary-threshold" min="1" max="100" step="1" value="90" title="Crop fill % that triggers a conversion" />
+                <span>%</span>
+              </label>
+              <label class="schedule-interval-lbl">
+                <span>Leave</span>
+                <input class="proxy-inp schedule-hours" type="number" id="granary-leave-crop" min="0" step="100" value="0" title="Crop to leave behind after converting" />
+                <span>crop</span>
+              </label>
+              <label class="proxy-check" title="Check one village per cycle instead of all of them">
+                <input type="checkbox" id="granary-round-robin" name="roundRobin" />
+                <span>Round-robin</span>
+              </label>
+              <label class="schedule-interval-lbl">
+                <span>Every</span>
+                <input class="proxy-inp schedule-hours" type="number" id="granary-min" min="1" step="1" value="15" />
+                <span>–</span>
+                <input class="proxy-inp schedule-hours" type="number" id="granary-max" min="1" step="1" value="40" />
+                <span>min</span>
+              </label>
+            </div>
+            <div class="marketplace-villages-head">
+              <span class="marketplace-give-lbl">Villages</span>
+              <button type="button" id="granary-load-villages" class="ghost proxy-btn-sm" title="Read your village list from the game">Load from game</button>
+              <button type="button" id="granary-villages-all" class="ghost proxy-btn-sm">All</button>
+              <button type="button" id="granary-villages-none" class="ghost proxy-btn-sm">None</button>
+              <button type="button" id="granary-save" class="proxy-save proxy-btn-sm">Save</button>
+              <button type="button" id="granary-check" class="ghost proxy-btn-sm" title="Read stocks now — converts nothing">Check now</button>
+              <button type="button" id="granary-run-now" class="ghost proxy-btn-sm" title="Queue the next cycle on the runner">Run now</button>
+              <button type="button" id="granary-run-once" class="proxy-save proxy-btn-sm marketplace-accept-btn" title="Run one cycle right now">Run once</button>
+            </div>
+            <div id="granary-villages" class="marketplace-villages" role="list" aria-label="Villages to watch"></div>
+            <p class="marketplace-villages-empty muted" id="granary-villages-empty">No village picked — watches whichever village the browser is on.</p>
+            <p class="marketplace-line muted" id="granary-next-line">—</p>
+            <p class="marketplace-line marketplace-line-next-red" id="granary-next-approx">Next check approx: —</p>
+            <p class="marketplace-hint muted" id="granary-save-hint">Save — NPC needs gold and is off until you tick it</p>
+          </form>
+        </section>
     </div>
 
     <section class="card totals-card">

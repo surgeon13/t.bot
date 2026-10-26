@@ -157,6 +157,10 @@ The GUI keeps one `browser` + `context` + `page` and serializes actions with `Ac
 | `marketplaceConfig.js` | Ratio / per-run cap / resource-filter normalization (dry run defaults on) |
 | `marketplaceState.js` | `marketplace-state.json`, GUI status, random next-run time |
 | `marketplaceScheduler.js` | Min–max minute wait loop; same pause gates as farm list |
+| `intervalScheduler.js` | Shared min–max wait loop used by training and granary |
+| `troops.js` / `troopsConfig.js` / `troopsState.js` | Training queue top-up, per building and village |
+| `granary.js` / `granaryConfig.js` / `granaryState.js` | Crop watch and the NPC 1:1:1 split |
+| `villageSelection.js` | Village ticks, merge on discovery, round-robin order |
 | `logger.js` | Console + `data/bot.log` + SSE subscribers |
 | `utils.js` | `randomDelay()` from config |
 | `terminalControl.js` | `status` / `stop` / `run` during tasks |

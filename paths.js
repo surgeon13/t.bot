@@ -27,6 +27,8 @@ const TOTALS_STATE_FILE = path.join(DATA_DIR, 'totals-state.json');
 const PROXY_ROTATION_STATE_FILE = path.join(DATA_DIR, 'proxy-rotation-state.json');
 const FARM_LIST_STATE_FILE = path.join(DATA_DIR, 'farm-list-state.json');
 const MARKETPLACE_STATE_FILE = path.join(DATA_DIR, 'marketplace-state.json');
+const TRAINING_STATE_FILE = path.join(DATA_DIR, 'training-state.json');
+const GRANARY_STATE_FILE = path.join(DATA_DIR, 'granary-state.json');
 const WORK_SLEEP_STATE_FILE = path.join(DATA_DIR, 'work-sleep-state.json');
 const MICRO_PAUSE_STATE_FILE = path.join(DATA_DIR, 'micro-pause-state.json');
 
@@ -41,6 +43,8 @@ const LEGACY_ROOT_FILES = [
   ['proxy-rotation-state.json', PROXY_ROTATION_STATE_FILE],
   ['farm-list-state.json', FARM_LIST_STATE_FILE],
   ['marketplace-state.json', MARKETPLACE_STATE_FILE],
+  ['training-state.json', TRAINING_STATE_FILE],
+  ['granary-state.json', GRANARY_STATE_FILE],
   ['work-sleep-state.json', WORK_SLEEP_STATE_FILE],
   ['micro-pause-state.json', MICRO_PAUSE_STATE_FILE],
 ];
@@ -81,6 +85,8 @@ module.exports = {
   PROXY_ROTATION_STATE_FILE,
   FARM_LIST_STATE_FILE,
   MARKETPLACE_STATE_FILE,
+  TRAINING_STATE_FILE,
+  GRANARY_STATE_FILE,
   WORK_SLEEP_STATE_FILE,
   MICRO_PAUSE_STATE_FILE,
   PACKAGE_FOLDER_NAME,
